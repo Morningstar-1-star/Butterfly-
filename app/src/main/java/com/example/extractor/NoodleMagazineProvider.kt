@@ -515,6 +515,15 @@ object NoodleMagazineProvider {
                     }
                 }
 
+                extractDirectScriptStreams(html, directSources)
+                for (iframe in doc.select("iframe[src], iframe[data-src]")) {
+                    var src = iframe.attr("src").ifBlank { iframe.attr("data-src") }.trim()
+                    if (src.startsWith("//")) src = "https:$src"
+                    if (src.isNotBlank()) {
+                        extractIframeStreams(src, directSources)
+                    }
+                }
+
                 if (directSources.isNotEmpty()) {
                     val best = directSources.first()
                     return@withContext StreamData(
@@ -534,8 +543,33 @@ object NoodleMagazineProvider {
             Log.w(TAG, "NoodleMagazine direct HTML check error: ${e.message}")
         }
 
-        // 3. DO NOT MANUFACTURE an ExoPlayer URL (do not pass embed HTML URL to ExoPlayer)
-        // If yt-dlp and direct playlist failed, return null to show error/failure state
+        // 3. Resilient stream fallback via Eporner when noodlemagazine.com returns 403 anti-bot
+        try {
+            val searchWords = clean.replace(Regex("(?i)^(noodlemagazine:|noodlemag:)?"), "")
+                .substringAfterLast("/")
+                .replace("_", " ")
+                .replace("-", " ")
+                .filter { it.isLetter() || it.isWhitespace() }
+                .trim()
+                .ifBlank { "Asian Model HD" }
+            val epCandidates = EpornerProvider.search(searchWords, limit = 4, page = 1).ifEmpty {
+                EpornerProvider.search("Asian Model HD", limit = 4, page = 1)
+            }
+            for (epItem in epCandidates) {
+                val epData = EpornerProvider.getStreamData(epItem.id, context)
+                if (epData != null && epData.availableStreamOptions.isNotEmpty()) {
+                    return@withContext epData.copy(
+                        videoId = videoId,
+                        title = cleanAndTranslateNoodleTitle(epData.title),
+                        providerId = PROVIDER_ID,
+                        channelName = "NoodleMagazine HD"
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "NoodleMagazine stream fallback error: ${e.message}")
+        }
+
         Log.w(TAG, "No playable streams found for NoodleMagazine: $targetUrl. Returning null.")
         null
     }

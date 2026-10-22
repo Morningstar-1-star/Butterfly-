@@ -54,43 +54,67 @@ fun SubtitleOverlay(modifier: Modifier = Modifier) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 24.dp, vertical = if (isPositionTop) 60.dp else 40.dp),
+                .padding(horizontal = 24.dp, vertical = if (isPositionTop) 60.dp else 36.dp),
             contentAlignment = if (isPositionTop) Alignment.TopCenter else Alignment.BottomCenter
         ) {
             Column(
                 modifier = Modifier
-                    .background(
-                        Color.Black.copy(alpha = bgOpacity),
-                        RoundedCornerShape(8.dp)
-                    )
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 val isDualTextDifferent = origText.isNotBlank() && transText.isNotBlank() && !origText.trim().equals(transText.trim(), ignoreCase = true)
                 if (transText.isNotBlank() && subtitleMode != GlobalPlayerManager.SubtitleMode.BILIBILI_ORIGINAL) {
-                    Text(
+                    OutlinedSubtitleText(
                         text = transText,
-                        color = Color(0xFFFFFF00),
-                        fontSize = fontSize.sp,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                        lineHeight = (fontSize * 1.3f).sp
+                        fontSize = fontSize
                     )
                 }
                 if (origText.isNotBlank() && (subtitleMode == GlobalPlayerManager.SubtitleMode.BILIBILI_ORIGINAL || (dualEnabled && isDualTextDifferent) || transText.isBlank())) {
                     if (transText.isNotBlank() && subtitleMode != GlobalPlayerManager.SubtitleMode.BILIBILI_ORIGINAL && isDualTextDifferent) {
-                        Spacer(modifier = Modifier.height(3.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
                     }
-                    Text(
+                    OutlinedSubtitleText(
                         text = origText,
-                        color = Color.White.copy(alpha = 0.9f),
-                        fontSize = (fontSize * 0.85f).sp,
-                        fontWeight = FontWeight.Medium,
-                        textAlign = TextAlign.Center,
-                        lineHeight = (fontSize * 1.15f).sp
+                        fontSize = fontSize * 0.9f,
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun OutlinedSubtitleText(
+    text: String,
+    fontSize: Float,
+    fontWeight: FontWeight = FontWeight.Bold,
+    modifier: Modifier = Modifier
+) {
+    Box(contentAlignment = Alignment.Center, modifier = modifier) {
+        Text(
+            text = text,
+            style = androidx.compose.ui.text.TextStyle(
+                fontSize = fontSize.sp,
+                fontWeight = fontWeight,
+                textAlign = TextAlign.Center,
+                lineHeight = (fontSize * 1.25f).sp,
+                color = Color.Black,
+                drawStyle = androidx.compose.ui.graphics.drawscope.Stroke(
+                    width = 4.5f,
+                    join = androidx.compose.ui.graphics.StrokeJoin.Round
+                )
+            )
+        )
+        Text(
+            text = text,
+            style = androidx.compose.ui.text.TextStyle(
+                fontSize = fontSize.sp,
+                fontWeight = fontWeight,
+                textAlign = TextAlign.Center,
+                lineHeight = (fontSize * 1.25f).sp,
+                color = Color.White
+            )
+        )
     }
 }

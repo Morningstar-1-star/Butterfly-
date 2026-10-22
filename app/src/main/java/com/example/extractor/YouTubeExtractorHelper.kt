@@ -326,6 +326,22 @@ object YouTubeExtractorHelper {
             return@withContext ExtractionResult.Success(cached)
         }
 
+        val result = resolveStreamInternal(urlOrId, context, providerId)
+        if (result is ExtractionResult.Success) {
+            val data = result.streamData
+            cacheStream(providerId, urlOrId, data)
+            if (!data.providerId.isNullOrBlank()) {
+                cacheStream(data.providerId, urlOrId, data)
+                if (data.videoId.isNotBlank() && data.videoId != urlOrId) {
+                    cacheStream(data.providerId, data.videoId, data)
+                }
+            }
+        }
+        result
+    }
+
+    private suspend fun resolveStreamInternal(urlOrId: String, context: Context? = null, providerId: String? = null): ExtractionResult = withContext(Dispatchers.IO) {
+
         // Step 0: Direct M3U8 / Local file handling (zero transcoding/downloading)
         val isM3u8OrLocal = providerId == "m3u8" || providerId == "local" || providerId == "gdrive" ||
                 urlOrId.startsWith("content://") || urlOrId.startsWith("file://") ||

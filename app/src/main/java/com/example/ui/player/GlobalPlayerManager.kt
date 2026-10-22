@@ -246,6 +246,12 @@ object GlobalPlayerManager {
         sessionInstance?.selectCaptionOption(context, option)
     }
 
+    fun isSubtitleExplicitlyClosed(): Boolean = sessionInstance?.userExplicitlyClosedSubtitles ?: false
+
+    fun setSubtitleExplicitlyClosed(closed: Boolean) {
+        sessionInstance?.userExplicitlyClosedSubtitles = closed
+    }
+
     fun selectAudioTrack(option: AudioTrackOption) {
         sessionInstance?.selectAudioTrack(option)
     }

@@ -51,7 +51,7 @@ object AppConfig {
     const val DEFAULT_SUBDL_API_KEY = "subdl_Mp42hcrZJOddEWEGyUjzp1q2A1NsdWxkAd2pDD8PCwg"
     const val DEFAULT_OPENSUBTITLES_API_KEY = "p1Q8N8Z6eB0s6Z6A5t8Y4U1I3O9P2L5K"
     const val DEFAULT_TORRENTIO_BASE_URL = "https://torrentio.strem.fun"
-    const val DEFAULT_VEGA_SERVER_URL = "https://vega.strem.fun"
+    const val DEFAULT_VEGA_SERVER_URL = "https://butterfly-mediaserver.onrender.com"
     const val DEFAULT_JAVINIZER_API_URL = "http://localhost:8765"
     const val DEFAULT_JAVINIZER_TIMEOUT_SECONDS = 15
     const val DEFAULT_JAVINIZER_ENABLED = true

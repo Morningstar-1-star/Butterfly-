@@ -32,20 +32,20 @@ object SmartAdaptiveLoadControl {
             false
         }
 
-        // Cellular max buffer: 22s (stops runaway mobile data consumption!)
-        // Wi-Fi max buffer: 35s
-        val maxBufferMs = if (isWifi) 35_000 else 22_000
+        // Cellular max buffer: 15s (stops runaway mobile data consumption!)
+        // Wi-Fi max buffer: 25s
+        val maxBufferMs = if (isWifi) 25_000 else 15_000
 
         return DefaultLoadControl.Builder()
             .setAllocator(DefaultAllocator(true, C.DEFAULT_BUFFER_SEGMENT_SIZE))
             .setBufferDurationsMs(
-                /* minBufferMs = */ 10_000,                       // 10s minimum safe buffer
-                /* maxBufferMs = */ maxBufferMs,                  // 22s cellular / 35s wifi cap
-                /* bufferForPlaybackMs = */ 500,                  // ~500ms snappy initial startup
-                /* bufferForPlaybackAfterRebufferMs = */ 1_800    // 1.8s anti-stutter buffer after rebuffer
+                /* minBufferMs = */ 2_500,                       // 2.5s minimum buffer window to prevent stutter at >1.0x speed
+                /* maxBufferMs = */ maxBufferMs,                  // 15s cellular / 25s wifi cap
+                /* bufferForPlaybackMs = */ 800,                  // 800ms snappy initial startup
+                /* bufferForPlaybackAfterRebufferMs = */ 1_500    // 1.5s smooth recovery after rebuffer
             )
             .setPrioritizeTimeOverSizeThresholds(true)
-            .setBackBuffer(15_000, true) // 15s back buffer
+            .setBackBuffer(12_000, true) // 12s back buffer for instant rewind
             .build()
     }
 }

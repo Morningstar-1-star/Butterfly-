@@ -43,17 +43,23 @@ object CommentExtractorHelper {
         "https://vid.puffyan.us/api/v1/comments/"
     )
 
-    suspend fun fetchComments(
+    data class CommentsResult(
+        val comments: List<VideoComment>,
+        val totalCommentsCount: Long? = null,
+        val continuationToken: String? = null
+    )
+
+    suspend fun fetchCommentsResult(
         videoId: String,
         providerId: String? = null,
         videoTitle: String? = null
-    ): List<VideoComment> = withContext(Dispatchers.IO) {
-        if (videoId.isBlank() && videoTitle.isNullOrBlank()) return@withContext emptyList()
+    ): CommentsResult = withContext(Dispatchers.IO) {
+        if (videoId.isBlank() && videoTitle.isNullOrBlank()) return@withContext CommentsResult(emptyList())
 
         val cleanProvider = (providerId ?: "").lowercase()
         val title = videoTitle ?: ""
 
-        // 1. If adult provider -> Fetch real adult user comments
+        // 1. Adult providers
         val isAdult = cleanProvider == "eporner" || cleanProvider == "pornhub" || cleanProvider == "xvideos" ||
                 cleanProvider == "xhamster" || cleanProvider == "redtube" || cleanProvider == "youporn" ||
                 cleanProvider == "4tube" || cleanProvider == "beeg" || cleanProvider == "rule34video" ||
@@ -63,11 +69,11 @@ object CommentExtractorHelper {
         if (isAdult) {
             val adultComments = fetchAdultComments(videoId, cleanProvider, title)
             if (adultComments.isNotEmpty()) {
-                return@withContext adultComments
+                return@withContext CommentsResult(adultComments, adultComments.size.toLong())
             }
         }
 
-        // 2. If Anime provider or title -> Fetch AniList user reviews as comments
+        // 2. Anime reviews
         val isAnime = cleanProvider == "anilist" || cleanProvider.contains("anime") ||
                 cleanProvider == "gogoanime" || cleanProvider == "aniwave" || cleanProvider == "zorox" ||
                 cleanProvider == "animepahe" || cleanProvider == "marin" || cleanProvider == "anime3rb" ||
@@ -76,11 +82,11 @@ object CommentExtractorHelper {
         if (isAnime) {
             val aniListReviews = fetchAniListReviews(title = title, videoId = videoId)
             if (aniListReviews.isNotEmpty()) {
-                return@withContext aniListReviews
+                return@withContext CommentsResult(aniListReviews, aniListReviews.size.toLong())
             }
         }
 
-        // 3. If Vega or Torrent item -> Fetch authentic IMDb / TMDB user reviews
+        // 3. Vega / Torrent item TMDB reviews
         val isTorrentOrVega = cleanProvider.contains("torrent") ||
                 cleanProvider.contains("vega") ||
                 videoId.startsWith("torrent_") ||
@@ -94,7 +100,7 @@ object CommentExtractorHelper {
                 providerId = providerId
             )
             if (tmdbReviews.isNotEmpty()) {
-                return@withContext tmdbReviews
+                return@withContext CommentsResult(tmdbReviews, tmdbReviews.size.toLong())
             }
         }
 
@@ -102,21 +108,21 @@ object CommentExtractorHelper {
         val isBilibili = cleanProvider == "bilibili" || videoId.contains("bilibili") || videoId.contains("b23.tv") || videoId.startsWith("BV", ignoreCase = true) || videoId.startsWith("av", ignoreCase = true)
         if (isBilibili) {
             val biliComments = fetchBilibiliComments(videoId)
-            if (biliComments.isNotEmpty()) return@withContext biliComments
+            if (biliComments.isNotEmpty()) return@withContext CommentsResult(biliComments, biliComments.size.toLong())
         }
 
         // 5. Dailymotion comments
         val isDailymotion = cleanProvider == "dailymotion" || cleanProvider.contains("daily") || videoId.contains("dailymotion") || videoId.contains("dai.ly")
         if (isDailymotion) {
             val dmComments = fetchDailymotionComments(videoId, title)
-            if (dmComments.isNotEmpty()) return@withContext dmComments
+            if (dmComments.isNotEmpty()) return@withContext CommentsResult(dmComments, dmComments.size.toLong())
         }
 
         // 6. Internet Archive user reviews & comments
         val isArchive = cleanProvider.contains("archive") || videoId.contains("archive.org")
         if (isArchive) {
             val archiveComments = fetchArchiveComments(videoId)
-            if (archiveComments.isNotEmpty()) return@withContext archiveComments
+            if (archiveComments.isNotEmpty()) return@withContext CommentsResult(archiveComments, archiveComments.size.toLong())
         }
 
         // 7. YouTube comments
@@ -124,16 +130,23 @@ object CommentExtractorHelper {
         if (isYouTube || cleanProvider.isBlank()) {
             val ytId = extractYouTubeId(videoId)
             if (!ytId.isNullOrBlank()) {
-                val apiComments = fetchYouTubeCommentsViaApi(ytId)
-                if (apiComments.isNotEmpty()) return@withContext apiComments
+                val apiResult = fetchYouTubeCommentsViaApi(ytId)
+                if (apiResult.comments.isNotEmpty()) return@withContext apiResult
 
                 val newPipeComments = fetchYouTubeCommentsViaNewPipe(ytId)
-                if (newPipeComments.isNotEmpty()) return@withContext newPipeComments
+                if (newPipeComments.isNotEmpty()) return@withContext CommentsResult(newPipeComments, newPipeComments.size.toLong())
             }
         }
 
-        // Return empty list (NO demo/mock fake comments)
-        return@withContext emptyList()
+        return@withContext CommentsResult(emptyList())
+    }
+
+    suspend fun fetchComments(
+        videoId: String,
+        providerId: String? = null,
+        videoTitle: String? = null
+    ): List<VideoComment> {
+        return fetchCommentsResult(videoId, providerId, videoTitle).comments
     }
 
     private fun extractYouTubeId(raw: String): String? {
@@ -148,7 +161,7 @@ object CommentExtractorHelper {
         }
     }
 
-    private fun fetchYouTubeCommentsViaApi(ytId: String): List<VideoComment> {
+    private fun fetchYouTubeCommentsViaApi(ytId: String): CommentsResult {
         for (baseUrl in YOUTUBE_COMMENT_APIS) {
             try {
                 val url = "$baseUrl$ytId"
@@ -169,47 +182,56 @@ object CommentExtractorHelper {
                     }
 
                     if (commentArray != null && commentArray.length() > 0) {
-                        val resultList = mutableListOf<VideoComment>()
-                        for (i in 0 until commentArray.length().coerceAtMost(30)) {
-                            val obj = commentArray.getJSONObject(i)
-                            val author = obj.optString("author", obj.optString("authorName", "Viewer"))
-                            val text = obj.optString("contentText", obj.optString("contentHtml", obj.optString("text", "")))
-                            if (text.isBlank()) continue
+                        val parsedComments = parseCommentsArray(commentArray)
+                        if (parsedComments.isNotEmpty()) {
+                            val totalCount = parseTotalCommentCount(json)
+                            var continuation = json.optString("continuation", null)
+                                ?: json.optString("nextpage", null)
 
-                            var avatarUrl: String? = null
-                            if (obj.has("authorThumbnails")) {
-                                val thumbs = obj.optJSONArray("authorThumbnails")
-                                if (thumbs != null && thumbs.length() > 0) {
-                                    avatarUrl = thumbs.getJSONObject(thumbs.length() - 1).optString("url")
+                            // Initial load: fetch up to 2 extra pages so the user gets 50-70 comments right away
+                            val accumulated = parsedComments.toMutableList()
+                            var nextPageCount = 0
+                            while (!continuation.isNullOrBlank() && nextPageCount < 2) {
+                                nextPageCount++
+                                try {
+                                    val nextUrl = "$baseUrl$ytId?continuation=${java.net.URLEncoder.encode(continuation, "UTF-8")}"
+                                    val nextReq = Request.Builder()
+                                        .url(nextUrl)
+                                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                                        .build()
+                                    client.newCall(nextReq).execute().use { nextResp ->
+                                        if (nextResp.isSuccessful) {
+                                            val nextBody = nextResp.body?.string() ?: ""
+                                            if (nextBody.isNotBlank()) {
+                                                val nextJson = JSONObject(nextBody)
+                                                val nextArr = when {
+                                                    nextJson.has("comments") -> nextJson.getJSONArray("comments")
+                                                    nextJson.has("commentItems") -> nextJson.getJSONArray("commentItems")
+                                                    else -> null
+                                                }
+                                                if (nextArr != null && nextArr.length() > 0) {
+                                                    accumulated.addAll(parseCommentsArray(nextArr))
+                                                    continuation = nextJson.optString("continuation", null)
+                                                        ?: nextJson.optString("nextpage", null)
+                                                } else {
+                                                    continuation = null
+                                                }
+                                            }
+                                        } else {
+                                            continuation = null
+                                        }
+                                    }
+                                } catch (_: Exception) {
+                                    break
                                 }
                             }
-                            if (avatarUrl.isNullOrBlank()) {
-                                avatarUrl = obj.optString("authorAvatar", null)
-                            }
-                            if (avatarUrl != null && avatarUrl.startsWith("//")) {
-                                avatarUrl = "https:$avatarUrl"
-                            }
 
-                            val published = obj.optString("publishedText", obj.optString("timeAgo", "recently"))
-                            val likes = obj.optInt("likeCount", obj.optInt("likes", 0))
-                            val isPinned = obj.optBoolean("isPinned", false)
-                            val isHearted = obj.optBoolean("isHearted", false)
-
-                            resultList.add(
-                                VideoComment(
-                                    id = obj.optString("commentId", "yt_cmt_$i"),
-                                    authorName = author,
-                                    authorAvatarUrl = avatarUrl,
-                                    commentText = text,
-                                    timeAgo = published,
-                                    likeCount = likes,
-                                    sourceBadge = if (isPinned) "📌 Pinned" else if (isHearted) "❤️ Loved by creator" else "YouTube"
-                                )
+                            Log.i(TAG, "Fetched ${accumulated.size} comments (total: $totalCount) via $baseUrl for $ytId")
+                            return CommentsResult(
+                                comments = accumulated.distinctBy { it.id },
+                                totalCommentsCount = if (totalCount != null && totalCount > 0) totalCount else accumulated.size.toLong(),
+                                continuationToken = continuation
                             )
-                        }
-                        if (resultList.isNotEmpty()) {
-                            Log.i(TAG, "Fetched ${resultList.size} comments via $baseUrl for $ytId")
-                            return resultList
                         }
                     }
                 }
@@ -217,7 +239,106 @@ object CommentExtractorHelper {
                 Log.w(TAG, "Comment API fetch error from $baseUrl: ${e.message}")
             }
         }
-        return emptyList()
+        return CommentsResult(emptyList())
+    }
+
+    suspend fun fetchMoreYouTubeComments(videoId: String, continuationToken: String): CommentsResult = withContext(Dispatchers.IO) {
+        val ytId = extractYouTubeId(videoId) ?: videoId
+        for (baseUrl in YOUTUBE_COMMENT_APIS) {
+            try {
+                val url = "$baseUrl$ytId?continuation=${java.net.URLEncoder.encode(continuationToken, "UTF-8")}"
+                val request = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .build()
+
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) return@use
+                    val body = response.body?.string() ?: return@use
+                    val json = JSONObject(body)
+
+                    val commentArray: JSONArray? = when {
+                        json.has("comments") -> json.getJSONArray("comments")
+                        json.has("commentItems") -> json.getJSONArray("commentItems")
+                        else -> null
+                    }
+
+                    if (commentArray != null && commentArray.length() > 0) {
+                        val parsed = parseCommentsArray(commentArray)
+                        val nextContinuation = json.optString("continuation", null)
+                            ?: json.optString("nextpage", null)
+                        val totalCount = parseTotalCommentCount(json)
+                        return@withContext CommentsResult(
+                            comments = parsed,
+                            totalCommentsCount = totalCount,
+                            continuationToken = nextContinuation
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "fetchMoreYouTubeComments error via $baseUrl: ${e.message}")
+            }
+        }
+        return@withContext CommentsResult(emptyList())
+    }
+
+    private fun parseTotalCommentCount(json: JSONObject): Long? {
+        if (json.has("commentCount")) {
+            val v = json.optLong("commentCount", -1L)
+            if (v > 0) return v
+        }
+        if (json.has("commentsCount")) {
+            val v = json.optLong("commentsCount", -1L)
+            if (v > 0) return v
+        }
+        if (json.has("totalCount")) {
+            val v = json.optLong("totalCount", -1L)
+            if (v > 0) return v
+        }
+        return null
+    }
+
+    private fun parseCommentsArray(commentArray: JSONArray): List<VideoComment> {
+        val resultList = mutableListOf<VideoComment>()
+        for (i in 0 until commentArray.length()) {
+            val obj = commentArray.getJSONObject(i)
+            val author = obj.optString("author", obj.optString("authorName", "Viewer"))
+            val rawText = obj.optString("contentText", obj.optString("contentHtml", obj.optString("text", "")))
+            val cleanText = CommentTextCleaner.cleanCommentText(rawText)
+            if (cleanText.isBlank()) continue
+
+            var avatarUrl: String? = null
+            if (obj.has("authorThumbnails")) {
+                val thumbs = obj.optJSONArray("authorThumbnails")
+                if (thumbs != null && thumbs.length() > 0) {
+                    avatarUrl = thumbs.getJSONObject(thumbs.length() - 1).optString("url")
+                }
+            }
+            if (avatarUrl.isNullOrBlank()) {
+                avatarUrl = obj.optString("authorAvatar", null)
+            }
+            if (avatarUrl != null && avatarUrl.startsWith("//")) {
+                avatarUrl = "https:$avatarUrl"
+            }
+
+            val published = obj.optString("publishedText", obj.optString("timeAgo", "recently"))
+            val likes = obj.optInt("likeCount", obj.optInt("likes", 0))
+            val isPinned = obj.optBoolean("isPinned", false)
+            val isHearted = obj.optBoolean("isHearted", false)
+
+            resultList.add(
+                VideoComment(
+                    id = obj.optString("commentId", "yt_cmt_${System.nanoTime()}_$i"),
+                    authorName = author,
+                    authorAvatarUrl = avatarUrl,
+                    commentText = cleanText,
+                    timeAgo = published,
+                    likeCount = likes,
+                    sourceBadge = if (isPinned) "📌 Pinned" else if (isHearted) "❤️ Loved by creator" else "YouTube"
+                )
+            )
+        }
+        return resultList
     }
 
     private fun fetchYouTubeCommentsViaNewPipe(ytId: String): List<VideoComment> {
@@ -228,13 +349,16 @@ object CommentExtractorHelper {
 
             val list = mutableListOf<VideoComment>()
             for ((index, item) in items.withIndex()) {
-                if (index >= 30) break
+                if (index >= 40) break
                 val author = item.uploaderName ?: "Viewer"
-                val text = try {
+                val rawText = try {
                     item.commentText?.content ?: item.commentText?.toString() ?: item.name
                 } catch (e: Exception) {
                     item.name
                 } ?: continue
+                val cleanText = CommentTextCleaner.cleanCommentText(rawText)
+                if (cleanText.isBlank()) continue
+
                 val avatar = try {
                     item.javaClass.methods.firstOrNull { it.name.contains("Avatar", ignoreCase = true) || it.name.contains("Thumbnail", ignoreCase = true) || it.name.contains("Icon", ignoreCase = true) }?.invoke(item) as? String
                 } catch (e: Exception) { null }
@@ -246,7 +370,7 @@ object CommentExtractorHelper {
                         id = item.commentId ?: "np_cmt_$index",
                         authorName = author,
                         authorAvatarUrl = avatar,
-                        commentText = text,
+                        commentText = cleanText,
                         timeAgo = timeAgo,
                         likeCount = likes,
                         sourceBadge = "YouTube"
@@ -985,8 +1109,8 @@ object CommentExtractorHelper {
                                             val ytId = arr.optJSONObject(0)?.optString("videoId")
                                             if (!ytId.isNullOrBlank()) {
                                                 val ytComments = fetchYouTubeCommentsViaApi(ytId)
-                                                if (ytComments.isNotEmpty()) {
-                                                    return ytComments.map { it.copy(sourceBadge = "Community Discussion") }
+                                                if (ytComments.comments.isNotEmpty()) {
+                                                    return ytComments.comments.map { it.copy(sourceBadge = "Community Discussion") }
                                                 }
                                             }
                                         }

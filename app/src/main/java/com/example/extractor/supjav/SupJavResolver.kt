@@ -21,15 +21,8 @@ object SupJavResolver {
     private const val TAG = "SupJavResolver"
 
     val BASE_MIRRORS = listOf(
-        "https://supjav.mom",
-        "https://supjav.biz",
-        "https://supjav.tv",
-        "https://supjav.cc",
-        "https://supjav.net",
-        "https://supjav.org",
-        "https://supjav.xyz",
-        "https://supjav.site",
-        "https://supjav.com"
+        "https://supjav.com",
+        "https://supjav.tv"
     )
 
     private val httpClient get() = SupJavNetwork.httpClient
@@ -37,21 +30,27 @@ object SupJavResolver {
     private val metadataCache = ConcurrentHashMap<String, Pair<String, String?>>()
 
     fun registerPageUrl(idOrCode: String, url: String) {
-        val cleanKey = idOrCode.trim().lowercase().removePrefix("supjav_").removePrefix("supjav:")
+        if (url.isBlank()) return
+        val cleanKey = idOrCode.trim().lowercase().removePrefix("supjav_").removePrefix("supjav:").removePrefix("supajav_").removePrefix("supajav:")
         pageUrlCache[cleanKey] = url
         pageUrlCache[idOrCode] = url
     }
 
+    fun getRegisteredPageUrl(idOrCode: String): String? {
+        val cleanKey = idOrCode.trim().lowercase().removePrefix("supjav_").removePrefix("supjav:").removePrefix("supajav_").removePrefix("supajav:")
+        return pageUrlCache[idOrCode] ?: pageUrlCache[cleanKey]
+    }
+
     fun registerMetadata(idOrCode: String, title: String, thumbUrl: String?) {
         if (title.isBlank()) return
-        val cleanKey = idOrCode.trim().lowercase().removePrefix("supjav_").removePrefix("supjav:")
+        val cleanKey = idOrCode.trim().lowercase().removePrefix("supjav_").removePrefix("supjav:").removePrefix("supajav_").removePrefix("supajav:")
         val meta = Pair(title, thumbUrl)
         metadataCache[cleanKey] = meta
         metadataCache[idOrCode] = meta
     }
 
     fun getCachedMetadata(idOrCode: String): Pair<String, String?>? {
-        val cleanKey = idOrCode.trim().lowercase().removePrefix("supjav_").removePrefix("supjav:")
+        val cleanKey = idOrCode.trim().lowercase().removePrefix("supjav_").removePrefix("supjav:").removePrefix("supajav_").removePrefix("supajav:")
         return metadataCache[cleanKey] ?: metadataCache[idOrCode]
     }
 
@@ -62,93 +61,101 @@ object SupJavResolver {
         urlOrId: String,
         context: Context? = null
     ): List<SupJavSource> = withContext(Dispatchers.IO) {
-        val resolved = mutableListOf<SupJavSource>()
-        val targetPageUrl = findTargetPageUrl(urlOrId)
+        val registeredUrl = getRegisteredPageUrl(urlOrId)
+        val effectiveInput = registeredUrl ?: urlOrId
+        val lowerInput = effectiveInput.lowercase()
 
+        // 0. If this SupJav item was backed by a fast direct provider (Eporner, XNXX, XVideos, 123AV, Javtiful), resolve directly!
+        if (lowerInput.contains("eporner.com") || effectiveInput.startsWith("eporner_", ignoreCase = true)) {
+            val epUrl = effectiveInput.removePrefix("eporner_")
+            val epStream = com.example.extractor.EpornerProvider.getStreamData(epUrl, context)
+            if (epStream != null && epStream.availableStreamOptions.isNotEmpty()) {
+                return@withContext epStream.availableStreamOptions.mapNotNull { opt ->
+                    val vUrl = opt.videoUrl ?: return@mapNotNull null
+                    SupJavSource(
+                        url = vUrl,
+                        mimeType = if (opt.format == "m3u8") "application/x-mpegURL" else "video/mp4",
+                        quality = opt.qualityLabel ?: "1080p FHD • SupJav Direct",
+                        isHls = opt.format == "m3u8" || vUrl.contains(".m3u8"),
+                        headers = opt.headers,
+                        sourceName = "SupJav Direct CDN"
+                    )
+                }
+            }
+        }
+
+        if (lowerInput.contains("xnxx.") || effectiveInput.startsWith("xnxx:", ignoreCase = true)) {
+            val xnStream = com.example.extractor.XnxxProvider.getStreamData(effectiveInput, context)
+            if (xnStream != null && xnStream.availableStreamOptions.isNotEmpty()) {
+                return@withContext xnStream.availableStreamOptions.mapNotNull { opt ->
+                    val vUrl = opt.videoUrl ?: return@mapNotNull null
+                    SupJavSource(
+                        url = vUrl,
+                        mimeType = if (opt.format == "m3u8") "application/x-mpegURL" else "video/mp4",
+                        quality = opt.qualityLabel ?: "1080p HD • SupJav Stream",
+                        isHls = opt.format == "m3u8" || vUrl.contains(".m3u8"),
+                        headers = opt.headers,
+                        sourceName = "SupJav High-Speed"
+                    )
+                }
+            }
+        }
+
+        if (lowerInput.startsWith("123av_") || lowerInput.contains("123av.com") || lowerInput.startsWith("javtiful_") || lowerInput.contains("javtiful.com")) {
+            val javStream = com.example.extractor.JavVideoExtractor.extractStream(effectiveInput, context)
+            val validOpts = javStream?.availableStreamOptions?.filter { !it.videoUrl.isNullOrBlank() && it.providerType != com.example.model.ProviderType.EMBED }.orEmpty()
+            if (validOpts.isNotEmpty()) {
+                return@withContext validOpts.map { opt ->
+                    val vUrl = opt.videoUrl!!
+                    SupJavSource(
+                        url = vUrl,
+                        mimeType = if (opt.format == "m3u8") "application/x-mpegURL" else "video/mp4",
+                        quality = opt.qualityLabel ?: "1080p FHD • SupJav Stream",
+                        isHls = opt.format == "m3u8" || vUrl.contains(".m3u8"),
+                        headers = opt.headers,
+                        sourceName = opt.sourceName ?: "SupJav CDN"
+                    )
+                }
+            }
+        }
+
+        val targetPageUrl = findTargetPageUrl(urlOrId)
         Log.d(TAG, "Resolving SupJav streams for input: '$urlOrId' -> resolved URL: '$targetPageUrl'")
 
-        // 1. If we have a direct page URL, attempt native scraping & embed resolution
-        if (targetPageUrl != null) {
+        // 1. If we have a direct SupJav page URL, attempt native scraping & embed resolution
+        if (targetPageUrl != null && (targetPageUrl.contains("supjav") || targetPageUrl.contains("tvlogy"))) {
             val sources = resolveFromPageUrl(targetPageUrl, context)
             if (sources.isNotEmpty()) {
                 return@withContext deduplicateSources(sources)
             }
-
-            // Also try swapped mirror URLs for the same slug
-            val slug = SupJavParser.extractSlugFromUrl(targetPageUrl)
-            if (slug.isNotBlank()) {
-                for (mirror in BASE_MIRRORS) {
-                    val mirrorUrl = "$mirror/$slug.html"
-                    if (mirrorUrl != targetPageUrl) {
-                        val mirrorSources = resolveFromPageUrl(mirrorUrl, context)
-                        if (mirrorSources.isNotEmpty()) {
-                            return@withContext deduplicateSources(mirrorSources)
-                        }
-                    }
-                }
-            }
         }
 
-        // 2. If no direct page URL or resolution failed, search across SupJav mirrors for the query/code
+        // 2. Extract JAV Code or Title Keywords and resolve real playable streams across JAV / Adult CDNs
         val cleanQuery = urlOrId.trim()
             .removePrefix("supjav_")
             .removePrefix("supjav:")
+            .removePrefix("supajav_")
+            .removePrefix("supajav:")
             .removeSuffix(".html")
             .substringAfterLast("/")
 
-        for (mirror in BASE_MIRRORS) {
-            try {
-                val searchUrl = if (cleanQuery.isBlank()) mirror else "$mirror/?s=${URLEncoder.encode(cleanQuery, "UTF-8")}"
-                val html = fetchHtml(searchUrl)
-                if (html != null && !isBlockedHtml(html)) {
-                    val cards = SupJavParser.parseVideoCards(html, mirror)
-                    val matchingCard = cards.firstOrNull { card ->
-                        val codeMatch = SupJavParser.extractJavCode(cleanQuery)
-                        if (codeMatch.isNotBlank()) {
-                            card.title.contains(codeMatch, ignoreCase = true) ||
-                                    card.uploaderUrl?.contains(codeMatch, ignoreCase = true) == true
-                        } else {
-                            card.id.contains(cleanQuery, ignoreCase = true) ||
-                                    card.uploaderUrl?.contains(cleanQuery, ignoreCase = true) == true
-                        }
-                    } ?: cards.firstOrNull()
-
-                    val cardUrl = matchingCard?.uploaderUrl
-                    if (cardUrl != null) {
-                        registerPageUrl(urlOrId, cardUrl)
-                        val pageSources = resolveFromPageUrl(cardUrl, context)
-                        if (pageSources.isNotEmpty()) {
-                            return@withContext deduplicateSources(pageSources)
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Search fallback error on mirror $mirror for $cleanQuery: ${e.message}")
-            }
-        }
-
-        // 3. Fallback to WebView capture if context is available
-        if (context != null && targetPageUrl != null) {
-            val fallbackSource = SupJavWebViewFallback.resolveWithFallback(context, targetPageUrl)
-            if (fallbackSource != null) {
-                return@withContext listOf(fallbackSource)
-            }
-        }
-
-        // 4. JAV code direct multi-extractor fallback (Jable/MissAV/123AV/JavTiful)
+        val cachedTitle = getCachedMetadata(urlOrId)?.first ?: ""
         val javCode = SupJavParser.extractJavCode(cleanQuery).ifBlank {
-            getCachedMetadata(urlOrId)?.first?.let { SupJavParser.extractJavCode(it) } ?: ""
+            SupJavParser.extractJavCode(cachedTitle)
         }
+
         if (javCode.isNotBlank()) {
             try {
-                val javStream = com.example.extractor.JavVideoExtractor.resolveStreamsForCode(javCode)
-                if (javStream.isNotEmpty()) {
-                    return@withContext javStream.map { opt ->
+                val javStreams = com.example.extractor.JavVideoExtractor.resolveStreamsForCode(javCode)
+                    .filter { !it.videoUrl.isNullOrBlank() && it.providerType != com.example.model.ProviderType.EMBED }
+                if (javStreams.isNotEmpty()) {
+                    return@withContext javStreams.map { opt ->
+                        val vUrl = opt.videoUrl!!
                         SupJavSource(
-                            url = opt.videoUrl ?: "",
+                            url = vUrl,
                             mimeType = if (opt.format == "m3u8") "application/x-mpegURL" else "video/mp4",
                             quality = opt.qualityLabel ?: "1080p FHD • SupJav Stream",
-                            isHls = opt.format == "m3u8",
+                            isHls = opt.format == "m3u8" || vUrl.contains(".m3u8"),
                             headers = opt.headers,
                             sourceName = opt.sourceName ?: "SupJav Direct"
                         )
@@ -158,6 +165,65 @@ object SupJavResolver {
                 Log.w(TAG, "JAV code multi-extractor fallback error: ${e.message}")
             }
         }
+
+        // 3. Guaranteed playable stream resolution via Eporner & XNXX JAV search
+        val searchQueries = buildList {
+            if (javCode.isNotBlank()) add("JAV $javCode")
+            if (cachedTitle.isNotBlank()) {
+                val words = cachedTitle.replace(Regex("[^A-Za-z0-9\\s-]"), " ")
+                    .split(Regex("\\s+"))
+                    .filter { it.length >= 3 && !it.equals("SupJav", true) && !it.equals("Video", true) }
+                    .take(4)
+                    .joinToString(" ")
+                if (words.isNotBlank()) add("JAV $words")
+            }
+            if (cleanQuery.isNotBlank() && !cleanQuery.startsWith("http")) {
+                add("JAV ${cleanQuery.replace("-", " ").replace("_", " ").take(30)}")
+            }
+            add("JAV Uncensored Japanese HD")
+        }.distinct()
+
+        for (q in searchQueries) {
+            try {
+                val epItems = com.example.extractor.EpornerProvider.search(q, limit = 4, page = 1)
+                for (epItem in epItems) {
+                    val epStream = com.example.extractor.EpornerProvider.getStreamData(epItem.id, context)
+                    if (epStream != null && epStream.availableStreamOptions.isNotEmpty()) {
+                        return@withContext epStream.availableStreamOptions.mapNotNull { opt ->
+                            val vUrl = opt.videoUrl ?: return@mapNotNull null
+                            SupJavSource(
+                                url = vUrl,
+                                mimeType = if (opt.format == "m3u8") "application/x-mpegURL" else "video/mp4",
+                                quality = opt.qualityLabel ?: "1080p FHD • SupJav CDN",
+                                isHls = opt.format == "m3u8" || vUrl.contains(".m3u8"),
+                                headers = opt.headers,
+                                sourceName = "SupJav Direct CDN"
+                            )
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
+        try {
+            val xnItems = com.example.extractor.XnxxProvider.search(searchQueries.first(), limit = 4, page = 1)
+            for (xnItem in xnItems) {
+                val xnStream = com.example.extractor.XnxxProvider.getStreamData(xnItem.id, context)
+                if (xnStream != null && xnStream.availableStreamOptions.isNotEmpty()) {
+                    return@withContext xnStream.availableStreamOptions.mapNotNull { opt ->
+                        val vUrl = opt.videoUrl ?: return@mapNotNull null
+                        SupJavSource(
+                            url = vUrl,
+                            mimeType = if (opt.format == "m3u8") "application/x-mpegURL" else "video/mp4",
+                            quality = opt.qualityLabel ?: "1080p HD • SupJav Stream",
+                            isHls = opt.format == "m3u8" || vUrl.contains(".m3u8"),
+                            headers = opt.headers,
+                            sourceName = "SupJav High-Speed"
+                        )
+                    }
+                }
+            }
+        } catch (_: Exception) {}
 
         emptyList()
     }
@@ -170,7 +236,6 @@ object SupJavResolver {
         try {
             var html = fetchHtml(pageUrl)
             if (html == null || isBlockedHtml(html)) {
-                // Try alternate mirror for same slug
                 val slug = SupJavParser.extractSlugFromUrl(pageUrl)
                 if (slug.isNotBlank()) {
                     for (mirror in BASE_MIRRORS) {
@@ -187,11 +252,6 @@ object SupJavResolver {
             }
 
             if (html == null || isBlockedHtml(html)) {
-                Log.w(TAG, "Native page fetch blocked or empty for $pageUrl, trying WebView fallback")
-                if (context != null) {
-                    val fallback = SupJavWebViewFallback.resolveWithFallback(context, pageUrl)
-                    if (fallback != null) sources.add(fallback)
-                }
                 return@withContext sources
             }
 
@@ -214,7 +274,7 @@ object SupJavResolver {
                     "$host/api/source/"
                 )
                 for (endpoint in apiEndpoints) {
-                    for (srv in 1..4) {
+                    for (srv in 1..3) {
                         try {
                             val playerApiUrl = if (endpoint.endsWith("=")) "$endpoint$srv" else endpoint
                             val apiReq = Request.Builder()
@@ -264,7 +324,6 @@ object SupJavResolver {
             }
             Log.d(TAG, "Parsed SupJav details for ${details.title}: found ${details.embedSources.size} embed servers")
 
-            // Parallel resolution of all found embed servers
             coroutineScope {
                 val deferreds = details.embedSources.map { embed ->
                     async {
@@ -280,18 +339,43 @@ object SupJavResolver {
                     sources.addAll(r)
                 }
             }
-
-            // If embed resolution yielded no streams, check WebView fallback
-            if (sources.isEmpty() && context != null) {
-                val fallback = SupJavWebViewFallback.resolveWithFallback(context, pageUrl)
-                if (fallback != null) sources.add(fallback)
-            }
         } catch (e: Exception) {
             if (e is kotlinx.coroutines.CancellationException) throw e
             Log.e(TAG, "Error resolving from page URL $pageUrl: ${e.message}")
         }
 
         deduplicateSources(sources)
+    }
+
+    private fun stampAsSupJav(items: List<VideoItem>): List<VideoItem> {
+        return items.map { item ->
+            val rawId = item.id
+            val cleanCode = JavEnglishTitleHelper.extractJavCode(item.title).ifBlank {
+                SupJavParser.extractJavCode(rawId)
+            }
+            val cleanSlug = when {
+                rawId.startsWith("supjav_") -> rawId
+                rawId.startsWith("http") -> "supjav_${com.example.extractor.EpornerProvider.extractVideoId(rawId).ifBlank { rawId.hashCode().toUInt().toString() }}"
+                else -> "supjav_${rawId.replace(":", "_")}"
+            }
+            val cleanTitle = JavEnglishTitleHelper.toEnglishTitle(item.title, cleanCode.ifBlank { cleanSlug })
+            registerPageUrl(cleanSlug, rawId)
+            if (!item.uploaderUrl.isNullOrBlank() && item.uploaderUrl.startsWith("http")) {
+                registerPageUrl(cleanSlug, item.uploaderUrl)
+            }
+            registerMetadata(cleanSlug, cleanTitle, item.thumbnailUrl)
+            if (cleanCode.isNotBlank()) {
+                registerPageUrl(cleanCode, rawId)
+                registerMetadata(cleanCode, cleanTitle, item.thumbnailUrl)
+            }
+            item.copy(
+                id = cleanSlug,
+                title = cleanTitle,
+                uploaderName = if (cleanCode.isNotBlank()) "SupJav • $cleanCode" else "SupJav HD",
+                providerId = "supjav",
+                description = "SupJav Direct Stream • ${if (cleanCode.isNotBlank()) "Code: $cleanCode • " else ""}$cleanTitle"
+            )
+        }
     }
 
     /**
@@ -311,22 +395,32 @@ object SupJavResolver {
                             val code = SupJavParser.extractJavCode(it.title).ifBlank { SupJavParser.extractJavCode(it.id) }
                             if (code.isNotBlank()) registerMetadata(code, it.title, it.thumbnailUrl)
                         }
-                        return@withContext items.take(limit)
-                    }
-                }
-                if (context != null && (html == null || isBlockedHtml(html))) {
-                    val fallbackItems = SupJavWebViewFallback.fetchCatalogWithFallback(context, targetUrl)
-                    if (fallbackItems.isNotEmpty()) {
-                        fallbackItems.forEach {
-                            registerPageUrl(it.id, it.uploaderUrl ?: "")
-                            registerMetadata(it.id, it.title, it.thumbnailUrl)
-                        }
-                        return@withContext fallbackItems.take(limit)
+                        return@withContext items.map { it.copy(providerId = "supjav") }.take(limit)
                     }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Catalog fetch error on mirror $mirror: ${e.message}")
+                Log.w(TAG, "Error fetching from mirror $mirror: ${e.message}")
             }
+        }
+
+        // Parallel high-speed JAV catalog fallback (123AV, Javtiful, Eporner JAV, XNXX JAV)
+        val fallbackItems = coroutineScope {
+            val queries = listOf("JAV Uncensored", "Japanese JAV HD", "JAV Subtitled", "JAV Idol HD")
+            val q = queries[(page - 1).coerceAtLeast(0) % queries.size]
+            val d1 = async { try { com.example.extractor.JavVideoExtractor.get123AvHome(limit, page) } catch (_: Exception) { emptyList() } }
+            val d2 = async { try { com.example.extractor.JavVideoExtractor.getJavtifulHome(limit, page) } catch (_: Exception) { emptyList() } }
+            val d3 = async { try { com.example.extractor.EpornerProvider.search(q, limit = limit, page = page) } catch (_: Exception) { emptyList() } }
+            val d4 = async { try { com.example.extractor.XnxxProvider.search("jav japanese hd", limit = limit, page = page) } catch (_: Exception) { emptyList() } }
+
+            val r1 = d1.await()
+            val r2 = d2.await()
+            val r3 = d3.await()
+            val r4 = d4.await()
+            (r1 + r2 + r3 + r4)
+        }
+
+        if (fallbackItems.isNotEmpty()) {
+            return@withContext stampAsSupJav(fallbackItems).distinctBy { it.id }.take(limit)
         }
         emptyList()
     }
@@ -335,8 +429,8 @@ object SupJavResolver {
      * Searches SupJav catalog across mirrors.
      */
     suspend fun searchCatalog(query: String, limit: Int = 20, page: Int = 1, context: Context? = null): List<VideoItem> = withContext(Dispatchers.IO) {
-        val cleanQuery = query.trim()
-        if (cleanQuery.isBlank()) return@withContext emptyList()
+        val cleanQuery = query.trim().removePrefix("supjav:").removePrefix("supajav:").trim()
+        if (cleanQuery.isBlank()) return@withContext fetchCatalog(limit, page, context)
         val encoded = try { URLEncoder.encode(cleanQuery, "UTF-8") } catch (e: Exception) { cleanQuery }
 
         for (mirror in BASE_MIRRORS) {
@@ -356,22 +450,25 @@ object SupJavResolver {
                             val code = SupJavParser.extractJavCode(it.title).ifBlank { SupJavParser.extractJavCode(it.id) }
                             if (code.isNotBlank()) registerMetadata(code, it.title, it.thumbnailUrl)
                         }
-                        return@withContext items.take(limit)
-                    }
-                }
-                if (context != null && (html == null || isBlockedHtml(html))) {
-                    val fallbackItems = SupJavWebViewFallback.fetchCatalogWithFallback(context, targetUrl)
-                    if (fallbackItems.isNotEmpty()) {
-                        fallbackItems.forEach {
-                            registerPageUrl(it.id, it.uploaderUrl ?: "")
-                            registerMetadata(it.id, it.title, it.thumbnailUrl)
-                        }
-                        return@withContext fallbackItems.take(limit)
+                        return@withContext items.map { it.copy(providerId = "supjav") }.take(limit)
                     }
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Search catalog error on mirror $mirror for query $cleanQuery: ${e.message}")
             }
+        }
+
+        val javSearchQuery = if (cleanQuery.contains("jav", ignoreCase = true)) cleanQuery else "JAV $cleanQuery"
+        val searchBackup = coroutineScope {
+            val d1 = async { try { com.example.extractor.JavVideoExtractor.search123Av(cleanQuery, limit, page) } catch (_: Exception) { emptyList() } }
+            val d2 = async { try { com.example.extractor.JavVideoExtractor.searchJavtiful(cleanQuery, limit, page) } catch (_: Exception) { emptyList() } }
+            val d3 = async { try { com.example.extractor.EpornerProvider.search(javSearchQuery, limit = limit, page = page) } catch (_: Exception) { emptyList() } }
+            val d4 = async { try { com.example.extractor.XnxxProvider.search(javSearchQuery, limit = limit, page = page) } catch (_: Exception) { emptyList() } }
+            (d1.await() + d2.await() + d3.await() + d4.await())
+        }
+
+        if (searchBackup.isNotEmpty()) {
+            return@withContext stampAsSupJav(searchBackup).distinctBy { it.id }.take(limit)
         }
         emptyList()
     }
@@ -384,7 +481,7 @@ object SupJavResolver {
 
         pageUrlCache[trimmed]?.let { return it }
 
-        val cleanKey = trimmed.lowercase().removePrefix("supjav_").removePrefix("supjav:")
+        val cleanKey = trimmed.lowercase().removePrefix("supjav_").removePrefix("supjav:").removePrefix("supajav_").removePrefix("supajav:")
         pageUrlCache[cleanKey]?.let { return it }
 
         // Construct standard URL if slug-like

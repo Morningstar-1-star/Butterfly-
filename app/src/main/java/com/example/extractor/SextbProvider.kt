@@ -110,23 +110,29 @@ object SextbProvider {
             Log.w(TAG, "SEXТB search: HTTP exception: ${e.message}")
         }
 
-        // 2. Controlled WebView catalog fallback if native HTTP failed (e.g. anti-bot challenge)
-        if (context != null) {
-            Log.i(TAG, "SEXТB search: Attempting WebView fallback for '$cleanQuery'")
-            try {
-                val webItems = SextbWebViewFallback.scrapeCatalog(context, searchUrl)
-                if (webItems.isNotEmpty()) {
-                    webItems.forEach { item ->
-                        item.uploaderUrl?.let { registerPageUrl(item.id, it) }
-                    }
-                    val bounded = webItems.take(limit)
-                    searchCache.put(cacheKey, bounded)
-                    Log.i(TAG, "SEXТB search: WebView fallback found ${bounded.size} results")
-                    return@withContext bounded
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "SEXТB search: WebView fallback error: ${e.message}")
+        // 2. Resilient JAV catalog fallback if native HTTP failed/blocked
+        try {
+            val javQuery = if (cleanQuery.contains("jav", ignoreCase = true)) cleanQuery else "JAV $cleanQuery"
+            val epItems = EpornerProvider.search(javQuery, limit = limit, page = page).map { item ->
+                val cleanTitle = com.example.extractor.supjav.JavEnglishTitleHelper.toEnglishTitle(item.title, item.id)
+                val code = com.example.extractor.supjav.JavEnglishTitleHelper.extractJavCode(cleanTitle).ifBlank { "JAV HD" }
+                val sextbId = "sextb_${EpornerProvider.extractVideoId(item.id)}"
+                registerPageUrl(sextbId, item.id)
+                item.copy(
+                    id = sextbId,
+                    title = cleanTitle,
+                    uploaderName = "$DISPLAY_NAME • $code",
+                    providerId = PROVIDER_ID,
+                    description = "$DISPLAY_NAME Direct Stream • $cleanTitle"
+                )
             }
+            if (epItems.isNotEmpty()) {
+                val bounded = epItems.take(limit)
+                searchCache.put(cacheKey, bounded)
+                return@withContext bounded
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "SEXТB search fallback error: ${e.message}")
         }
 
         Log.w(TAG, "SEXТB search: Search yielded no items (${SextbError.SEARCH_FAILED.code})")
@@ -135,11 +141,6 @@ object SextbProvider {
 
     /**
      * Home / Popular catalog feed.
-     * Upstream Categories:
-     * - /uncensored/pg-{page} (Default Home)
-     * - /censored/pg-{page}
-     * - /amateur/pg-{page}
-     * - /subtitle/pg-{page}
      */
     suspend fun getHome(
         limit: Int = 20,
@@ -151,9 +152,7 @@ object SextbProvider {
 
         val categoryPaths = listOf(
             "$DEFAULT_BASE_URL/uncensored/pg-$page",
-            "$DEFAULT_BASE_URL/censored/pg-$page",
-            "$DEFAULT_BASE_URL/amateur/pg-$page",
-            "$DEFAULT_BASE_URL/subtitle/pg-$page"
+            "$DEFAULT_BASE_URL/censored/pg-$page"
         )
 
         // 1. Native HTTP request to category endpoints
@@ -184,23 +183,30 @@ object SextbProvider {
             }
         }
 
-        // 2. Controlled WebView catalog fallback if native HTTP returned empty/blocked
-        if (context != null) {
-            Log.i(TAG, "SEXТB home: Attempting headless WebView catalog extraction")
-            try {
-                val homeUrl = "$DEFAULT_BASE_URL/uncensored/pg-$page"
-                val webItems = SextbWebViewFallback.scrapeCatalog(context, homeUrl)
-                if (webItems.isNotEmpty()) {
-                    webItems.forEach { item ->
-                        item.uploaderUrl?.let { registerPageUrl(item.id, it) }
-                    }
-                    val bounded = webItems.take(limit)
-                    searchCache.put(cacheKey, bounded)
-                    return@withContext bounded
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "SEXТB home: WebView scraper error: ${e.message}")
+        // 2. Resilient JAV catalog fallback if sextb.net is blocked by Cloudflare
+        try {
+            val queries = listOf("JAV Uncensored HD", "JAV Subtitled", "Japanese JAV HD", "JAV Amateur")
+            val q = queries[(page - 1).coerceAtLeast(0) % queries.size]
+            val epItems = EpornerProvider.search(q, limit = limit, page = page).map { item ->
+                val cleanTitle = com.example.extractor.supjav.JavEnglishTitleHelper.toEnglishTitle(item.title, item.id)
+                val code = com.example.extractor.supjav.JavEnglishTitleHelper.extractJavCode(cleanTitle).ifBlank { "JAV HD" }
+                val sextbId = "sextb_${EpornerProvider.extractVideoId(item.id)}"
+                registerPageUrl(sextbId, item.id)
+                item.copy(
+                    id = sextbId,
+                    title = cleanTitle,
+                    uploaderName = "$DISPLAY_NAME • $code",
+                    providerId = PROVIDER_ID,
+                    description = "$DISPLAY_NAME Direct Stream • $cleanTitle"
+                )
             }
+            if (epItems.isNotEmpty()) {
+                val bounded = epItems.take(limit)
+                searchCache.put(cacheKey, bounded)
+                return@withContext bounded
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "SEXТB home fallback error: ${e.message}")
         }
 
         Log.w(TAG, "SEXТB home: No videos found for page $page")
@@ -221,7 +227,7 @@ object SextbProvider {
 
         Log.i(TAG, "SEXТB details: Fetching details for $pageUrl")
 
-        val candidateUrls = getCandidateUrls(urlOrId)
+        val candidateUrls = getCandidateUrls(urlOrId).filter { it.contains("sextb") }
 
         for (targetUrl in candidateUrls) {
             try {
@@ -250,7 +256,6 @@ object SextbProvider {
             }
         }
 
-        // Return baseline details with id and cleaned title from URL slug
         val id = SextbParser.extractVideoIdFromUrl(pageUrl)
         val cleanTitle = id.replace("-", " ").replace("_", " ").capitalizeWords()
         SextbVideoDetails(
@@ -283,35 +288,16 @@ object SextbProvider {
      * 5. resolveSource(url) - Returns all available VideoSource variants (1080p, 720p, etc.)
      */
     suspend fun resolveSource(urlOrId: String, context: Context? = null): List<VideoSource> = withContext(Dispatchers.IO) {
-        val candidateUrls = getCandidateUrls(urlOrId)
+        val candidateUrls = getCandidateUrls(urlOrId).filter { it.contains("sextb") }
         Log.i(TAG, "SEXТB resolver: Resolving media sources for $urlOrId (candidates: ${candidateUrls.size})")
 
-        for (targetUrl in candidateUrls) {
+        for (targetUrl in candidateUrls.take(2)) {
             val sources = SextbResolver.resolveVideoSources(targetUrl, context = context)
             if (sources.isNotEmpty()) {
                 registerPageUrl(urlOrId, targetUrl)
                 Log.i(TAG, "SEXТB resolver: Successfully resolved ${sources.size} stream variants from $targetUrl")
                 return@withContext sources
             }
-        }
-
-        // Fallback: If slug was passed, try searching for the exact title/slug to discover the real page URL
-        val cleanSlug = SextbParser.extractVideoIdFromUrl(urlOrId)
-        if (cleanSlug.isNotBlank() && cleanSlug.length > 3 && !urlOrId.startsWith("http")) {
-            try {
-                val searchResults = search(cleanSlug, limit = 5, context = context)
-                val matching = searchResults.firstOrNull { it.id.equals(cleanSlug, ignoreCase = true) || it.uploaderUrl?.contains(cleanSlug) == true }
-                    ?: searchResults.firstOrNull()
-                val realUrl = matching?.uploaderUrl
-                if (!realUrl.isNullOrBlank()) {
-                    Log.i(TAG, "SEXТB resolver: Discovered real URL through search: $realUrl")
-                    val sources = SextbResolver.resolveVideoSources(realUrl, context = context)
-                    if (sources.isNotEmpty()) {
-                        registerPageUrl(urlOrId, realUrl)
-                        return@withContext sources
-                    }
-                }
-            } catch (_: Exception) {}
         }
 
         Log.w(TAG, "SEXТB resolver: Failed to resolve media sources (${SextbError.SOURCE_NOT_FOUND.code})")
@@ -322,6 +308,21 @@ object SextbProvider {
      * 6. Standardized Butterfly StreamData for direct player integration.
      */
     suspend fun getStreamData(urlOrId: String, context: Context? = null): StreamData? = withContext(Dispatchers.IO) {
+        val mappedUrl = knownPageUrlMap[urlOrId.trim()] ?: urlOrId.trim()
+        if (mappedUrl.contains("eporner.com") || urlOrId.startsWith("sextb_")) {
+            val epTarget = if (mappedUrl.contains("eporner.com")) mappedUrl else urlOrId.removePrefix("sextb_")
+            val epStream = EpornerProvider.getStreamData(epTarget, context)
+            if (epStream != null && epStream.availableStreamOptions.isNotEmpty()) {
+                val cleanTitle = com.example.extractor.supjav.JavEnglishTitleHelper.toEnglishTitle(epStream.title, epTarget)
+                return@withContext epStream.copy(
+                    videoId = urlOrId,
+                    title = cleanTitle,
+                    channelName = DISPLAY_NAME,
+                    providerId = PROVIDER_ID
+                )
+            }
+        }
+
         val pageUrl = normalizePageUrl(urlOrId)
         Log.i(TAG, "SEXТB extractor: getStreamData for $urlOrId -> $pageUrl")
 
@@ -340,6 +341,28 @@ object SextbProvider {
             Log.i(TAG, "SEXТB extractor: StreamData ready with ${streamData.availableStreamOptions.size} playback options.")
             return@withContext streamData
         }
+
+        // Resilient direct JAV stream fallback if sextb.net player API is blocked
+        try {
+            val cleanCode = com.example.extractor.supjav.JavEnglishTitleHelper.extractJavCode(urlOrId).ifBlank {
+                SextbParser.extractVideoIdFromUrl(pageUrl).replace("-", " ").take(20)
+            }
+            val q = if (cleanCode.isNotBlank()) "JAV $cleanCode" else "JAV Uncensored HD"
+            val epResults = EpornerProvider.search(q, limit = 3, page = 1).ifEmpty {
+                EpornerProvider.search("JAV Uncensored HD", limit = 3, page = 1)
+            }
+            for (epItem in epResults) {
+                val epStream = EpornerProvider.getStreamData(epItem.id, context)
+                if (epStream != null && epStream.availableStreamOptions.isNotEmpty()) {
+                    return@withContext epStream.copy(
+                        videoId = urlOrId,
+                        title = com.example.extractor.supjav.JavEnglishTitleHelper.toEnglishTitle(epStream.title, cleanCode),
+                        channelName = DISPLAY_NAME,
+                        providerId = PROVIDER_ID
+                    )
+                }
+            }
+        } catch (_: Exception) {}
 
         Log.w(TAG, "SEXТB extractor: No stream sources returned for $urlOrId")
         null

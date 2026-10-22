@@ -35,7 +35,7 @@ class VidSrcProviderRepository(private val context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     private val _isMasterEnabled = MutableStateFlow(
-        prefs.getBoolean(KEY_MASTER_ENABLED, true)
+        prefs.getBoolean(KEY_MASTER_ENABLED, false)
     )
     val isMasterEnabled: StateFlow<Boolean> = _isMasterEnabled.asStateFlow()
 
@@ -58,7 +58,7 @@ class VidSrcProviderRepository(private val context: Context) {
         private const val PREFS_NAME = "vidsrc_provider_prefs"
         private const val KEY_MASTER_ENABLED = "vidsrc_master_enabled"
         private const val KEY_INSTALLED = "vidsrc_installed_providers"
-        private const val KEY_INITIALIZED = "vidsrc_initialized_v2"
+        private const val KEY_INITIALIZED = "vidsrc_clean_start_v4"
 
         val ALL_AVAILABLE: List<VidSrcProviderInfo> = listOf(
             VidSrcProviderInfo("autoembed", "AutoEmbed Ultra", "1080p Ultra HLS multi-server stream", false, "https://player.autoembed.cc"),
@@ -99,17 +99,13 @@ class VidSrcProviderRepository(private val context: Context) {
     private fun loadInstalledProviders() {
         val initialized = prefs.getBoolean(KEY_INITIALIZED, false)
         if (!initialized) {
-            // First run: Install all VidSrc providers by default so streaming works out of the box
-            val defaultList = ALL_AVAILABLE.map {
-                InstalledVidSrcProvider(
-                    id = it.id,
-                    name = it.name,
-                    isEnabled = true
-                )
-            }
-            saveProviders(defaultList)
-            prefs.edit().putBoolean(KEY_INITIALIZED, true).apply()
-            _installedProviders.value = defaultList
+            _installedProviders.value = emptyList()
+            _isMasterEnabled.value = false
+            prefs.edit()
+                .putString(KEY_INSTALLED, "[]")
+                .putBoolean(KEY_MASTER_ENABLED, false)
+                .putBoolean(KEY_INITIALIZED, true)
+                .apply()
             return
         }
 

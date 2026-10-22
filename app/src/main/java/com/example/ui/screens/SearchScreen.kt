@@ -221,15 +221,11 @@ fun SearchScreen(
         if (!adultContentEnabled) {
             val defaults = listOf(
                 ProviderSourceItemData("youtube", "YouTube", Icons.Default.PlayArrow, Color(0xFFFF0000)),
-                ProviderSourceItemData("tencent", "Tencent Video", Icons.Default.Tv, Color(0xFF0052D9)),
                 ProviderSourceItemData("bilibili", "Bilibili", Icons.Default.Tv, Color(0xFF00A1D6)),
-                ProviderSourceItemData("tmdb_embed", "TMDB Movies", Icons.Default.Movie, Color(0xFF01B4E4)),
-                ProviderSourceItemData("tubitv", "Tubi TV", Icons.Default.Tv, Color(0xFFFA233B)),
+                ProviderSourceItemData("tencent", "Tencent Video", Icons.Default.Tv, Color(0xFF0052D9)),
                 ProviderSourceItemData("dailymotion", "Dailymotion", Icons.Default.Movie, Color(0xFF0066DC)),
                 ProviderSourceItemData("archive_org", "Archive.org", Icons.Default.Folder, Color(0xFF5D4037)),
-                ProviderSourceItemData("torrent", "Torrent / Anime", Icons.Default.Download, Color(0xFF7B1FA2)),
-                ProviderSourceItemData("telegram", "Telegram", Icons.Default.Send, Color(0xFF0288D1)),
-                ProviderSourceItemData("mega", "Mega", Icons.Default.Cloud, Color(0xFFD32F2F))
+                ProviderSourceItemData("torrent", "Cinema & Anime", Icons.Default.Download, Color(0xFF7B1FA2))
             )
             defaults.forEach { item ->
                 if (!processedIds.contains(item.id.lowercase())) {
@@ -239,17 +235,18 @@ fun SearchScreen(
             }
         } else {
             val adultDefaults = listOf(
+                ProviderSourceItemData("supjav", "SupJav", Icons.Default.Explicit, Color(0xFFFF4081)),
+                ProviderSourceItemData("sextb", "SEXTB", Icons.Default.Explicit, Color(0xFFE91E63)),
+                ProviderSourceItemData("123av", "123AV", Icons.Default.Explicit, Color(0xFF9C27B0)),
+                ProviderSourceItemData("javtiful", "Javtiful", Icons.Default.Explicit, Color(0xFFD81B60)),
+                ProviderSourceItemData("xnxx", "XNXX", Icons.Default.Explicit, Color(0xFF00B0FF)),
                 ProviderSourceItemData("eporner", "Eporner", Icons.Default.Explicit, Color(0xFFFF5722)),
                 ProviderSourceItemData("spankbang", "SpankBang", Icons.Default.Explicit, Color(0xFFFF4081)),
-                ProviderSourceItemData("xnxx", "XNXX", Icons.Default.Explicit, Color(0xFF00B0FF)),
-                ProviderSourceItemData("hellporno", "HellPorno", Icons.Default.Explicit, Color(0xFFFF1744)),
                 ProviderSourceItemData("pornhub", "Pornhub", Icons.Default.Explicit, Color(0xFFFF9900)),
                 ProviderSourceItemData("xvideos", "XVideos", Icons.Default.Explicit, Color(0xFFD32F2F)),
+                ProviderSourceItemData("hellporno", "HellPorno", Icons.Default.Explicit, Color(0xFFFF1744)),
                 ProviderSourceItemData("stripchat", "Stripchat", Icons.Default.VideoLibrary, Color(0xFFFF3D00)),
-                ProviderSourceItemData("chaturbate", "Chaturbate", Icons.Default.VideoLibrary, Color(0xFFFF6D00)),
-                ProviderSourceItemData("sextb", "SEXTB", Icons.Default.Explicit, Color(0xFFE91E63)),
-                ProviderSourceItemData("supjav", "SupJav", Icons.Default.Explicit, Color(0xFFFF4081)),
-                ProviderSourceItemData("123av", "123AV", Icons.Default.Explicit, Color(0xFF9C27B0))
+                ProviderSourceItemData("chaturbate", "Chaturbate", Icons.Default.VideoLibrary, Color(0xFFFF6D00))
             )
             adultDefaults.forEach { item ->
                 if (!processedIds.contains(item.id.lowercase())) {
@@ -298,7 +295,7 @@ fun SearchScreen(
                 onValueChange = { viewModel.updateSearchQuery(it) },
                 placeholder = {
                     Text(
-                        text = "Search YouTube",
+                        text = if (adultContentEnabled) "Search 18+ videos, JAV codes, studios..." else "Search videos, anime, movies...",
                         fontSize = 15.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                     )

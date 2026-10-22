@@ -122,7 +122,7 @@ fun HomeScreen(
 
     val feedListState = rememberLazyListState()
 
-    val currentFeedList = if (searchResults.isNotEmpty()) searchResults else trendingVideos
+    val currentFeedList = trendingVideos
 
     var isSourceSwitching by remember(activeProviderId, activeCategory) { mutableStateOf(currentFeedList.isEmpty()) }
 
@@ -425,7 +425,7 @@ fun HomeScreen(
 
                         else -> {
                             val context = androidx.compose.ui.platform.LocalContext.current
-                            val rawFeed = if (searchResults.isNotEmpty()) searchResults else trendingVideos
+                            val rawFeed = trendingVideos
                             val feedList = remember(rawFeed, enabledProviderIds) {
                                 rawFeed.filter { viewModel.isItemProviderEnabled(it.providerId, enabledProviderIds) }
                             }
@@ -498,66 +498,38 @@ fun HomeScreen(
                                         bottom = bottomBarPaddingDp + (if (currentStreamData != null) 72.dp else 16.dp)
                                     )
                                 ) {
-                                    // MAIN FEED HEADER (ONLY WHEN SEARCH RESULTS EXIST)
-                                    if (searchResults.isNotEmpty()) {
-                                        item {
-                                            Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                                                horizontalArrangement = Arrangement.SpaceBetween,
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Text(
-                                                    text = "Search Results",
-                                                    style = MaterialTheme.typography.titleMedium,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = MaterialTheme.colorScheme.onBackground
-                                                )
-                                            }
-                                        }
-                                    }
-
                                     // FEED ERROR / SKELETON / CARDS
                                     if (feedError != null) {
                                         item {
                                             FeedErrorDiagnosticCard(
                                                 errorDetails = feedError!!,
                                                 onRetry = {
-                                                    if (activeCategory == "All" && searchQuery.isBlank()) {
-                                                        viewModel.loadTrending()
+                                                    if (activeCategory == "All") {
+                                                        viewModel.loadTrending(forceRefresh = true)
                                                     } else {
-                                                        viewModel.performSearch()
+                                                        viewModel.loadHomeCategoryTopic(activeCategory)
                                                     }
                                                 }
                                             )
                                         }
-                                    } else if (feedList.isEmpty() && (isLoadingTrending || isSearching || isFeedRefreshing || isSourceSwitching || searchQuery.isBlank())) {
+                                    } else if (feedList.isEmpty() && (isLoadingTrending || isFeedRefreshing || isSourceSwitching)) {
                                         item {
                                             FeedSkeletonLoading(
                                                 itemCount = 5,
                                                 modifier = Modifier.fillMaxWidth()
                                             )
                                         }
-                                    } else if (feedList.isEmpty() && searchQuery.isNotBlank()) {
+                                    } else if (feedList.isEmpty()) {
                                         item {
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(32.dp),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Text(
-                                                    text = "No videos found for '$searchQuery'. Try another query or category.",
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                )
-                                            }
+                                            FeedSkeletonLoading(
+                                                itemCount = 5,
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
                                         }
                                     } else {
                                         val isCurrentAdultContext = adultContentEnabled || viewModel.isAdultProviderId(activeProviderId)
                                         val isSingleProviderActive = activeProviderId != "all" && activeProviderId.isNotBlank()
-                                        val showSearchRecsShelf = !isSingleProviderActive && searchResults.isEmpty() && searchDrivenRecommendations.isNotEmpty() && !latestSearchIntent.isNullOrBlank() && (
+                                        val showSearchRecsShelf = !isSingleProviderActive && activeCategory == "All" && searchDrivenRecommendations.isNotEmpty() && !latestSearchIntent.isNullOrBlank() && (
                                             if (isCurrentAdultContext) searchDrivenRecommendations.all { (viewModel.isAdultVideoItem(it) || viewModel.isAdultProviderId(it.providerId)) && !viewModel.isNormalProvider(it.providerId) }
                                             else searchDrivenRecommendations.all { !viewModel.isAdultVideoItem(it) && !viewModel.isAdultProviderId(it.providerId) }
                                         )
@@ -667,11 +639,9 @@ fun HomeScreen(
                 ?: trendingVideos.firstOrNull()?.title 
                 ?: searchQuery
 
-            val smartTagsList = remember(activeContextTitle, searchQuery, recentSearches, activeProviderId, adultContentEnabled) {
+            val smartTagsList = remember(activeContextTitle, recentSearches, activeProviderId, adultContentEnabled) {
                 if (activeProviderId == "bilibili") {
                     listOf("All", "Live", "Anime", "Bangumi", "Music", "Gaming", "Technology", "Dance", "Entertainment", "Life", "Food", "Film & TV")
-                } else if (activeProviderId == "bigo") {
-                    listOf("All", "Music & Singing", "Gaming", "Dance", "Talk & Chat", "DJ", "Cosplay", "Entertainment", "Fitness", "Travel", "ASMR", "Food")
                 } else if (activeProviderId == "hanime1") {
                     listOf("All", "New Releases", "OVA", "Uncensored", "Isekai", "Fantasy", "School", "Comedy", "Cosplay", "3D", "Subbed")
                 } else if (activeProviderId == "tencent") {
@@ -784,33 +754,41 @@ fun HomeScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        // DIRECT SOURCE SELECTOR BUTTON WITH MINIMAL COMPACT ICON ONLY
+                        // MINIMAL SMOOTH SOURCE SELECTOR DROPDOWN
                         item {
                             var isSourceMenuExpanded by remember { mutableStateOf(false) }
                             Box {
                                 Surface(
                                     onClick = { isSourceMenuExpanded = true },
-                                    shape = RoundedCornerShape(8.dp),
+                                    shape = RoundedCornerShape(10.dp),
                                     color = if (activeProviderId != "all") {
-                                        if (adultContentEnabled) Color(0xFFE91E63) else MaterialTheme.colorScheme.primary
+                                        if (adultContentEnabled) Color(0xFFE91E63).copy(alpha = 0.2f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
                                     } else unselectedChipBg,
                                     contentColor = if (activeProviderId != "all") Color.White else unselectedChipFg,
                                     border = androidx.compose.foundation.BorderStroke(
                                         1.dp,
-                                        if (activeProviderId != "all") Color.Transparent else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                                        if (activeProviderId != "all") {
+                                            if (adultContentEnabled) Color(0xFFE91E63).copy(alpha = 0.65f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)
+                                        } else Color.White.copy(alpha = 0.1f)
                                     ),
                                     modifier = Modifier.height(32.dp)
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp)
                                     ) {
                                         if (activeProviderId != "all") {
                                             SourceBrandLogo(
                                                 providerId = activeProviderId,
-                                                size = 18.dp,
+                                                size = 17.dp,
                                                 isAdultMode = adultContentEnabled
+                                            )
+                                            Text(
+                                                text = activeProviderName.substringBefore(" ("),
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                maxLines = 1
                                             )
                                         } else {
                                             Icon(
@@ -820,9 +798,9 @@ fun HomeScreen(
                                             )
                                         }
                                         Icon(
-                                            imageVector = Icons.Default.ArrowDropDown,
+                                            imageVector = Icons.Default.KeyboardArrowDown,
                                             contentDescription = "Select Source",
-                                            modifier = Modifier.size(16.dp)
+                                            modifier = Modifier.size(15.dp)
                                         )
                                     }
                                 }
@@ -830,11 +808,16 @@ fun HomeScreen(
                                 DropdownMenu(
                                     expanded = isSourceMenuExpanded,
                                     onDismissRequest = { isSourceMenuExpanded = false },
+                                    containerColor = Color(0xFF0C0C12),
+                                    tonalElevation = 0.dp,
+                                    shadowElevation = 12.dp,
+                                    shape = RoundedCornerShape(16.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
                                     modifier = Modifier
-                                        .widthIn(min = 230.dp, max = 270.dp)
-                                        .heightIn(max = 480.dp)
+                                        .width(220.dp)
+                                        .heightIn(max = 420.dp)
                                 ) {
-                                    // Mode Switcher Banner at top of Dropdown
+                                    // Minimal Mode Switcher Pill Row
                                     DropdownMenuItem(
                                         text = {
                                             Row(
@@ -843,342 +826,133 @@ fun HomeScreen(
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Text(
-                                                    text = if (adultContentEnabled) "Switch to Mainstream" else "Switch to 18+ Mode",
-                                                    fontWeight = FontWeight.Bold,
+                                                    text = if (adultContentEnabled) "Mode: 18+ Adult" else "Mode: Mainstream",
+                                                    fontWeight = FontWeight.SemiBold,
                                                     fontSize = 12.sp,
-                                                    color = if (adultContentEnabled) MaterialTheme.colorScheme.primary else Color(0xFFE91E63)
+                                                    color = Color.White.copy(alpha = 0.9f)
                                                 )
                                                 Surface(
-                                                    shape = RoundedCornerShape(4.dp),
-                                                    color = if (adultContentEnabled) MaterialTheme.colorScheme.primaryContainer else Color(0xFFFFE4EC)
+                                                    shape = RoundedCornerShape(50),
+                                                    color = if (adultContentEnabled) Color(0xFFE91E63).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f)
                                                 ) {
                                                     Text(
-                                                        text = if (adultContentEnabled) "MAINSTREAM" else "18+",
+                                                        text = "Switch",
                                                         style = MaterialTheme.typography.labelSmall,
-                                                        color = if (adultContentEnabled) MaterialTheme.colorScheme.primary else Color(0xFFE91E63),
+                                                        color = if (adultContentEnabled) Color(0xFFFF80AB) else Color.White.copy(alpha = 0.85f),
                                                         fontWeight = FontWeight.Bold,
-                                                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
-                                                        fontSize = 8.5.sp
+                                                        modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
+                                                        fontSize = 9.5.sp
                                                     )
                                                 }
                                             }
                                         },
                                         leadingIcon = {
                                             Icon(
-                                                imageVector = if (adultContentEnabled) Icons.Default.SwapHoriz else Icons.Default.Explicit,
+                                                imageVector = if (adultContentEnabled) Icons.Default.Explicit else Icons.Default.SwapHoriz,
                                                 contentDescription = null,
-                                                tint = if (adultContentEnabled) MaterialTheme.colorScheme.primary else Color(0xFFE91E63),
-                                                modifier = Modifier.size(18.dp)
+                                                tint = if (adultContentEnabled) Color(0xFFE91E63) else Color.White.copy(alpha = 0.8f),
+                                                modifier = Modifier.size(17.dp)
                                             )
                                         },
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
                                         onClick = {
                                             isSourceMenuExpanded = false
+                                            activeCategory = "All"
                                             viewModel.setAdultContentEnabled(!adultContentEnabled)
                                         }
                                     )
 
-                                    HorizontalDivider()
+                                    HorizontalDivider(color = Color.White.copy(alpha = 0.07f))
 
-                                    if (adultContentEnabled) {
-                                        // 18+ ADULT SOURCES ONLY (Strictly segregated - NO Tencent Video)
-                                        Text(
-                                            text = "LIVE WEBCAM ROOMS",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFFFF5722),
-                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
-                                            fontSize = 10.sp
-                                        )
-
-                                        val adultLiveSources = listOf(
-                                            Pair("stripchat", "Stripchat"),
-                                            Pair("chaturbate", "Chaturbate"),
-                                            Pair("cam4", "CAM4")
-                                        )
-
-                                        adultLiveSources.forEach { (id, name) ->
-                                            val isSelected = (activeProviderId == id)
-                                            DropdownMenuItem(
-                                                text = {
-                                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        Text(
-                                                            text = name,
-                                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                                            fontSize = 13.sp,
-                                                            color = if (isSelected) Color(0xFFFF3D00) else MaterialTheme.colorScheme.onSurface
-                                                        )
-                                                        Spacer(modifier = Modifier.width(6.dp))
-                                                        Surface(
-                                                            shape = RoundedCornerShape(3.dp),
-                                                            color = Color(0xFFFF3D00)
-                                                        ) {
-                                                            Text(
-                                                                text = "LIVE",
-                                                                color = Color.White,
-                                                                fontWeight = FontWeight.Bold,
-                                                                modifier = Modifier.padding(horizontal = 3.dp, vertical = 0.5.dp),
-                                                                fontSize = 8.sp
-                                                            )
-                                                        }
-                                                    }
-                                                },
-                                                leadingIcon = {
-                                                    SourceBrandLogo(
-                                                        providerId = id,
-                                                        size = 22.dp,
-                                                        isAdultMode = true
-                                                    )
-                                                },
-                                                trailingIcon = {
-                                                    if (isSelected) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.Check,
-                                                            contentDescription = null,
-                                                            tint = Color(0xFFFF3D00),
-                                                            modifier = Modifier.size(16.dp)
-                                                        )
-                                                    }
-                                                },
-                                                onClick = {
-                                                    isSourceMenuExpanded = false
-                                                    viewModel.setActiveProvider(id)
-                                                }
-                                            )
-                                        }
-
-                                        HorizontalDivider()
-
-                                        Text(
-                                            text = "ADULT VIDEO TUBES & CATALOGS",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color(0xFFE91E63),
-                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
-                                            fontSize = 10.sp
-                                        )
-
-                                        val adultTubeSources = listOf(
+                                    val menuSources = if (adultContentEnabled) {
+                                        listOf(
                                             Pair("all", "All 18+ Sources"),
-                                            Pair("xnxx", "XNXX"),
-                                            Pair("hellporno", "HellPorno"),
                                             Pair("supjav", "SupJav"),
+                                            Pair("sextb", "SEXTB"),
                                             Pair("123av", "123AV"),
+                                            Pair("javtiful", "Javtiful"),
+                                            Pair("xnxx", "XNXX"),
                                             Pair("pornhub", "Pornhub"),
                                             Pair("xvideos", "XVideos"),
-                                            Pair("spankbang", "SpankBang")
+                                            Pair("spankbang", "SpankBang"),
+                                            Pair("eporner", "Eporner"),
+                                            Pair("stripchat", "Stripchat Live"),
+                                            Pair("chaturbate", "Chaturbate Live")
                                         )
-
-                                        adultTubeSources.forEach { (id, name) ->
-                                            val isSelected = (activeProviderId == id)
-                                            DropdownMenuItem(
-                                                text = {
-                                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        Text(
-                                                            text = name,
-                                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                                            fontSize = 13.sp,
-                                                            color = if (isSelected) Color(0xFFE91E63) else MaterialTheme.colorScheme.onSurface
-                                                        )
-                                                        if (id == "all") {
-                                                            Spacer(modifier = Modifier.width(6.dp))
-                                                            Surface(
-                                                                shape = RoundedCornerShape(3.dp),
-                                                                color = Color(0xFFE91E63)
-                                                            ) {
-                                                                Text(
-                                                                    text = "ALL",
-                                                                    color = Color.White,
-                                                                    fontWeight = FontWeight.Bold,
-                                                                    modifier = Modifier.padding(horizontal = 3.dp, vertical = 0.5.dp),
-                                                                    fontSize = 8.sp
-                                                                )
-                                                            }
-                                                        }
-                                                    }
-                                                },
-                                                leadingIcon = {
-                                                    SourceBrandLogo(
-                                                        providerId = id,
-                                                        size = 22.dp,
-                                                        isAdultMode = true
-                                                    )
-                                                },
-                                                trailingIcon = {
-                                                    if (isSelected) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.Check,
-                                                            contentDescription = null,
-                                                            tint = Color(0xFFE91E63),
-                                                            modifier = Modifier.size(16.dp)
-                                                        )
-                                                    }
-                                                },
-                                                onClick = {
-                                                    isSourceMenuExpanded = false
-                                                    viewModel.setActiveProvider(id)
-                                                }
-                                            )
-                                        }
                                     } else {
-                                        // MAINSTREAM / NORMAL SOURCES ONLY (Includes Tencent Video, strictly NO adult sources)
-                                        Text(
-                                            text = "FEATURED PLATFORMS",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
-                                            fontSize = 10.sp
-                                        )
-
-                                        val mainstreamFeatured = listOf(
-                                            Pair("all", "All Sources"),
-                                            Pair("youtube", "YouTube"),
-                                            Pair("tencent", "Tencent Video"),
-                                            Pair("bilibili", "Bilibili"),
-                                            Pair("twitch", "Twitch"),
-                                            Pair("dailymotion", "Dailymotion")
-                                        )
-
-                                        mainstreamFeatured.forEach { (id, name) ->
-                                            val isSelected = (activeProviderId == id)
-                                            DropdownMenuItem(
-                                                text = {
-                                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        Text(
-                                                            text = name,
-                                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                                            fontSize = 13.sp,
-                                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                                        )
-                                                        if (id == "tencent") {
-                                                            Spacer(modifier = Modifier.width(6.dp))
-                                                            Surface(
-                                                                shape = RoundedCornerShape(3.dp),
-                                                                color = Color(0xFF0052D9)
-                                                            ) {
-                                                                Text(
-                                                                    text = "v.qq.com",
-                                                                    color = Color.White,
-                                                                    fontWeight = FontWeight.Bold,
-                                                                    modifier = Modifier.padding(horizontal = 3.dp, vertical = 0.5.dp),
-                                                                    fontSize = 8.sp
-                                                                )
-                                                            }
-                                                        } else if (id == "all") {
-                                                            Spacer(modifier = Modifier.width(6.dp))
-                                                            Surface(
-                                                                shape = RoundedCornerShape(3.dp),
-                                                                color = MaterialTheme.colorScheme.primary
-                                                            ) {
-                                                                Text(
-                                                                    text = "ALL",
-                                                                    color = Color.White,
-                                                                    fontWeight = FontWeight.Bold,
-                                                                    modifier = Modifier.padding(horizontal = 3.dp, vertical = 0.5.dp),
-                                                                    fontSize = 8.sp
-                                                                )
-                                                            }
-                                                        }
-                                                    }
-                                                },
-                                                leadingIcon = {
-                                                    SourceBrandLogo(
-                                                        providerId = id,
-                                                        size = 22.dp,
-                                                        isAdultMode = false
-                                                    )
-                                                },
-                                                trailingIcon = {
-                                                    if (isSelected) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.Check,
-                                                            contentDescription = null,
-                                                            tint = MaterialTheme.colorScheme.primary,
-                                                            modifier = Modifier.size(16.dp)
-                                                        )
-                                                    }
-                                                },
-                                                onClick = {
-                                                    isSourceMenuExpanded = false
-                                                    viewModel.setActiveProvider(id)
-                                                }
-                                            )
-                                        }
-
-                                        HorizontalDivider()
-
-                                        Text(
-                                            text = "OTT STREAMING & CINEMA",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.secondary,
-                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
-                                            fontSize = 10.sp
-                                        )
-
-                                        val ottCinemaSources = listOf(
-                                            Pair("mxplayer", "MX Player"),
-                                            Pair("curiositystream", "CuriosityStream"),
-                                            Pair("popcorntv", "PopcornTV"),
-                                            Pair("tubitv", "Tubi TV")
-                                        )
-
-                                        ottCinemaSources.forEach { (id, name) ->
-                                            val isSelected = (activeProviderId == id)
-                                            DropdownMenuItem(
-                                                text = {
-                                                    Text(
-                                                        text = name,
-                                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                                        fontSize = 13.sp,
-                                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                                    )
-                                                },
-                                                leadingIcon = {
-                                                    SourceBrandLogo(
-                                                        providerId = id,
-                                                        size = 22.dp,
-                                                        isAdultMode = false
-                                                    )
-                                                },
-                                                trailingIcon = {
-                                                    if (isSelected) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.Check,
-                                                            contentDescription = null,
-                                                            tint = MaterialTheme.colorScheme.primary,
-                                                            modifier = Modifier.size(16.dp)
-                                                        )
-                                                    }
-                                                },
-                                                onClick = {
-                                                    isSourceMenuExpanded = false
-                                                    viewModel.setActiveProvider(id)
-                                                }
-                                            )
+                                        buildList {
+                                            add(Pair("all", "All Sources"))
+                                            add(Pair("youtube", "YouTube"))
+                                            add(Pair("bilibili", "Bilibili"))
+                                            add(Pair("tencent", "Tencent Video"))
+                                            add(Pair("dailymotion", "Dailymotion"))
+                                            add(Pair("archive_org", "Archive.org"))
+                                            add(Pair("torrent", "Cinema & Anime"))
+                                            availableProviders
+                                                .filter { !viewModel.isAdultProviderId(it.id) && it.id !in setOf("all", "youtube", "bilibili", "tencent", "dailymotion", "archive_org", "torrent") }
+                                                .forEach { add(Pair(it.id, it.name)) }
                                         }
                                     }
 
-                                    HorizontalDivider()
+                                    menuSources.forEach { (id, name) ->
+                                        val isSelected = (activeProviderId == id)
+                                        val accentColor = if (adultContentEnabled) Color(0xFFE91E63) else MaterialTheme.colorScheme.primary
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    text = name,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                    fontSize = 13.sp,
+                                                    color = if (isSelected) Color.White else Color.White.copy(alpha = 0.82f),
+                                                    maxLines = 1
+                                                )
+                                            },
+                                            leadingIcon = {
+                                                SourceBrandLogo(
+                                                    providerId = id,
+                                                    size = 20.dp,
+                                                    isAdultMode = adultContentEnabled
+                                                )
+                                            },
+                                            trailingIcon = {
+                                                if (isSelected) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Check,
+                                                        contentDescription = null,
+                                                        tint = accentColor,
+                                                        modifier = Modifier.size(15.dp)
+                                                    )
+                                                }
+                                            },
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                                            onClick = {
+                                                isSourceMenuExpanded = false
+                                                activeCategory = "All"
+                                                viewModel.setActiveProvider(id)
+                                            }
+                                        )
+                                    }
 
-                                    // Open Full Sheet Option
+                                    HorizontalDivider(color = Color.White.copy(alpha = 0.07f))
+
                                     DropdownMenuItem(
                                         text = {
                                             Text(
-                                                text = "Source Explorer & Search...",
+                                                text = "More Sources...",
                                                 fontWeight = FontWeight.Medium,
                                                 fontSize = 12.sp,
-                                                color = MaterialTheme.colorScheme.primary
+                                                color = Color.White.copy(alpha = 0.65f)
                                             )
                                         },
                                         leadingIcon = {
                                             Icon(
-                                                imageVector = Icons.Default.Tune,
+                                                imageVector = Icons.Default.MoreHoriz,
                                                 contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(18.dp)
+                                                tint = Color.White.copy(alpha = 0.65f),
+                                                modifier = Modifier.size(17.dp)
                                             )
                                         },
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
                                         onClick = {
                                             isSourceMenuExpanded = false
                                             showSourceSelectorSheet = true
@@ -1188,28 +962,15 @@ fun HomeScreen(
                             }
                         }
 
-
-                        // CATEGORY TAG CHIPS
+                        // CATEGORY TAG CHIPS (Cleanly filters Home feed without opening Search)
                         items(smartTagsList) { tag ->
-                            val isSelected = when {
-                                tag == "All" -> searchQuery.isBlank()
-                                activeProviderId == "bilibili" -> searchQuery.equals("bilisearch:$tag", ignoreCase = true) || searchQuery.equals(tag, ignoreCase = true)
-                                else -> searchQuery.equals(tag, ignoreCase = true)
-                            }
+                            val isSelected = activeCategory.equals(tag, ignoreCase = true)
                             Surface(
                                 onClick = {
-                                    if (tag == "All") {
-                                        viewModel.clearSearch()
-                                    } else if (activeProviderId == "bilibili") {
-                                        val query = "bilisearch:$tag"
-                                        viewModel.updateSearchQuery(query)
-                                        viewModel.performSearch(query)
-                                    } else {
-                                        viewModel.updateSearchQuery(tag)
-                                        viewModel.performSearch(tag)
-                                    }
+                                    activeCategory = tag
+                                    viewModel.loadHomeCategoryTopic(tag)
                                 },
-                                shape = RoundedCornerShape(8.dp),
+                                shape = RoundedCornerShape(10.dp),
                                 color = if (isSelected) selectedChipBg else unselectedChipBg,
                                 contentColor = if (isSelected) selectedChipFg else unselectedChipFg,
                                 modifier = Modifier.height(32.dp)
@@ -1308,6 +1069,9 @@ fun HomeScreen(
                     currentScreen = currentScreen,
                     userProfile = userProfile,
                     onSelectScreen = { screen ->
+                        if (isSearchExpanded) {
+                            viewModel.clearSearch()
+                        }
                         isSearchExpanded = false
                         if (screen == AppScreen.HOME) {
                             if (currentScreen == AppScreen.HOME) {

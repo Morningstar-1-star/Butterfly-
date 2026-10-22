@@ -23,6 +23,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.launch
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -37,8 +38,7 @@ enum class SourcePillCategory(val label: String, val icon: ImageVector, val colo
     VIDSRC("VidSrc", Icons.Outlined.VideoLibrary, Color(0xFF9C27B0)),
     DECRYPTOR("Decryptor", Icons.Outlined.LockOpen, Color(0xFF00BCD4)),
     TMDB("TMDB Embeds", Icons.Outlined.MovieCreation, Color(0xFF4CAF50)),
-    NUVIO("Nuvio (29+)", Icons.Outlined.Extension, Color(0xFFE91E63)),
-    CLOUD("Cloud & Bunkr", Icons.Outlined.Cloud, Color(0xFF009688))
+    NUVIO("Nuvio (16)", Icons.Outlined.Extension, Color(0xFFE91E63))
 }
 
 data class UnifiedSourceItem(
@@ -78,6 +78,11 @@ fun UnifiedContentSourcesScreen(
     val availableVega by viewModel.availableVegaProviders.collectAsState()
     val vegaHealthMap by viewModel.providerHealthMap.collectAsState()
     val isTestingVegaHealth by viewModel.isTestingVegaHealth.collectAsState()
+    val coroutineScope = rememberCoroutineScope()
+    val vegaServerUrl by viewModel.vegaServerUrl.collectAsState()
+    var customVegaUrlInput by remember(vegaServerUrl) { mutableStateOf(vegaServerUrl) }
+    var isTestingServerHealth by remember { mutableStateOf(false) }
+    var serverHealthStatus by remember { mutableStateOf<Boolean?>(null) }
 
     val isVidSrcMasterEnabled by viewModel.isVidSrcMasterEnabled.collectAsState()
     val installedVidSrc by viewModel.installedVidSrcProviders.collectAsState()
@@ -109,28 +114,11 @@ fun UnifiedContentSourcesScreen(
         )
         val defaultNormal = listOf(
             UnifiedSourceItem("youtube", "YouTube", SourcePillCategory.NORMAL, "Official YouTube Streams & Shorts via InnerTube API", enabledProviderIds.contains("youtube"), qualityTag = "4K / 1080p", icon = Icons.Outlined.PlayArrow),
-            UnifiedSourceItem("vimeo", "Vimeo", SourcePillCategory.NORMAL, "High-definition creative cinema, indie films & documentaries", enabledProviderIds.contains("vimeo"), qualityTag = "4K / 1080p", icon = Icons.Outlined.VideoLibrary),
-            UnifiedSourceItem("twitch", "Twitch", SourcePillCategory.NORMAL, "Twitch live streams, top gaming channels, esports & VODs", enabledProviderIds.contains("twitch"), qualityTag = "1080p 60FPS", icon = Icons.Outlined.LiveTv),
-            UnifiedSourceItem("bigo", "BIGO Live", SourcePillCategory.NORMAL, "Global live broadcasters, video moments & interactive chat rooms", enabledProviderIds.contains("bigo"), qualityTag = "Live HLS", icon = Icons.Outlined.Videocam),
-            UnifiedSourceItem("dailymotion", "Dailymotion", SourcePillCategory.NORMAL, "Global news, trending videos & creator channels", enabledProviderIds.contains("dailymotion"), qualityTag = "1080p HD", icon = Icons.Outlined.VideoLibrary),
             UnifiedSourceItem("bilibili", "Bilibili", SourcePillCategory.NORMAL, "Anime, gaming, creator streams & Danmaku community", enabledProviderIds.contains("bilibili"), qualityTag = "1080p 60FPS", icon = Icons.Outlined.Tv),
-            UnifiedSourceItem("archive_org", "Internet Archive", SourcePillCategory.NORMAL, "Public domain movies, educational broadcasts & historical media", enabledProviderIds.contains("archive_org") || enabledProviderIds.contains("archive"), qualityTag = "Direct MP4", icon = Icons.Outlined.AccountBalance),
             UnifiedSourceItem("tencent", "Tencent Video (v.qq.com)", SourcePillCategory.NORMAL, "Official Chinese drama, anime, movies & VIP series with multi-bitrate HLS", enabledProviderIds.contains("tencent"), qualityTag = "1080p FHD", icon = Icons.Outlined.LiveTv),
-            UnifiedSourceItem("hotstar", "Hotstar / JioHotstar", SourcePillCategory.NORMAL, "Premium Indian & international TV shows, sports & serials", enabledProviderIds.contains("hotstar"), qualityTag = "1080p HD", icon = Icons.Outlined.Movie),
-            UnifiedSourceItem("crunchyroll", "Crunchyroll", SourcePillCategory.NORMAL, "Official anime catalog, simulcasts & full seasons", enabledProviderIds.contains("crunchyroll"), qualityTag = "1080p Anime", icon = Icons.Outlined.Animation),
-            UnifiedSourceItem("sonyliv", "SonyLIV", SourcePillCategory.NORMAL, "Sony TV shows, live sports, premium web series & cinema", enabledProviderIds.contains("sonyliv"), qualityTag = "1080p HD", icon = Icons.Outlined.LiveTv),
-            UnifiedSourceItem("amazonminitv", "Amazon miniTV", SourcePillCategory.NORMAL, "Free OTT web series, romance, comedy & youth dramas", enabledProviderIds.contains("amazonminitv"), qualityTag = "1080p HD", icon = Icons.Outlined.Tv),
-            UnifiedSourceItem("discoveryplus", "Discovery+", SourcePillCategory.NORMAL, "Science, nature, wildlife, TLC & reality docu-series", enabledProviderIds.contains("discoveryplus"), qualityTag = "1080p Docu", icon = Icons.Outlined.Explore),
-            UnifiedSourceItem("disney", "Disney / Disney+", SourcePillCategory.NORMAL, "Disney, Pixar, Marvel, Star Wars & Nat Geo cinema releases", enabledProviderIds.contains("disney"), qualityTag = "4K / 1080p", icon = Icons.Outlined.LocalMovies),
-            UnifiedSourceItem("hbo", "HBO / Max", SourcePillCategory.NORMAL, "HBO Originals, House of the Dragon, Game of Thrones & Max hits", enabledProviderIds.contains("hbo"), qualityTag = "4K / 1080p", icon = Icons.Outlined.MovieCreation),
-            UnifiedSourceItem("curiositystream", "CuriosityStream", SourcePillCategory.NORMAL, "Science, history, nature & deep documentary streaming", enabledProviderIds.contains("curiositystream"), qualityTag = "1080p FHD", icon = Icons.Outlined.Lightbulb),
-            UnifiedSourceItem("googledrive", "Google Drive", SourcePillCategory.NORMAL, "Stream public & personal Google Drive movie folders & shared links", enabledProviderIds.contains("googledrive"), qualityTag = "Direct Stream", icon = Icons.Outlined.Cloud),
-            UnifiedSourceItem("imdb", "IMDb Top Cinema", SourcePillCategory.NORMAL, "IMDb Top 250 releases, movie charts, previews & HD trailers", enabledProviderIds.contains("imdb"), qualityTag = "1080p Trailers", icon = Icons.Outlined.Star),
-            UnifiedSourceItem("mxplayer", "MX Player", SourcePillCategory.NORMAL, "MX Player OTT web series, short films & movies", enabledProviderIds.contains("mxplayer"), qualityTag = "1080p HD", icon = Icons.Outlined.PlayCircleOutline),
-            UnifiedSourceItem("popcorntv", "PopcornTV", SourcePillCategory.NORMAL, "Blockbuster movies, cinema classics & open streaming titles", enabledProviderIds.contains("popcorntv"), qualityTag = "4K Cinema", icon = Icons.Outlined.Theaters),
-            UnifiedSourceItem("tubitv", "Tubi TV", SourcePillCategory.NORMAL, "Free movies & TV series, 50,000+ titles with US/CA geo bypass", enabledProviderIds.contains("tubitv"), qualityTag = "1080p HD", icon = Icons.Outlined.LiveTv),
-            UnifiedSourceItem("decryptor", "Decryptor Multi-Server", SourcePillCategory.NORMAL, "Nxsha multi-server HLS engine: Vidhide, Turbo & fast CDNs", enabledProviderIds.contains("decryptor"), qualityTag = "Multi-Server", icon = Icons.Outlined.Dns),
-            UnifiedSourceItem("bun-tel-meg", "Telegram & Cloud Folders", SourcePillCategory.NORMAL, "Telegram channels, MEGA folders & Bunkr albums direct links", enabledProviderIds.contains("bun-tel-meg") || enabledProviderIds.contains("bunkr"), qualityTag = "Cloud Links", icon = Icons.Outlined.FolderZip)
+            UnifiedSourceItem("dailymotion", "Dailymotion", SourcePillCategory.NORMAL, "Global news, trending videos & creator channels", enabledProviderIds.contains("dailymotion"), qualityTag = "1080p HD", icon = Icons.Outlined.VideoLibrary),
+            UnifiedSourceItem("archive_org", "Internet Archive", SourcePillCategory.NORMAL, "Public domain movies, educational broadcasts & historical media", enabledProviderIds.contains("archive_org") || enabledProviderIds.contains("archive"), qualityTag = "Direct MP4", icon = Icons.Outlined.AccountBalance),
+            UnifiedSourceItem("torrent", "Cinema & Anime (P2P / Cloud)", SourcePillCategory.NORMAL, "Movies, TV Series & Anime via Butterfly MediaServer", enabledProviderIds.contains("torrent"), qualityTag = "1080p / 4K", icon = Icons.Outlined.Movie)
         )
         defaultNormal
     }
@@ -283,19 +271,9 @@ fun UnifiedContentSourcesScreen(
         }
     }
 
-    // 8. Cloud & Bunkr Providers
-    val cloudItems = remember(enabledProviderIds) {
-        listOf(
-            UnifiedSourceItem("bun-tel-meg", "Telegram & Cloud Folders", SourcePillCategory.CLOUD, "Telegram channels, MEGA folders & Bunkr albums direct links", enabledProviderIds.contains("bun-tel-meg") || enabledProviderIds.contains("bunkr"), qualityTag = "Cloud Links", icon = Icons.Outlined.FolderZip),
-            UnifiedSourceItem("telegram", "Telegram Cloud Channels", SourcePillCategory.CLOUD, "Direct streaming from connected public channels & saved files", enabledProviderIds.contains("telegram"), qualityTag = "Cloud Stream", icon = Icons.Outlined.Send),
-            UnifiedSourceItem("mega", "MEGA Cloud Storage", SourcePillCategory.CLOUD, "Stream videos directly from shared mega.nz folders & files", enabledProviderIds.contains("mega"), qualityTag = "Direct Cloud", icon = Icons.Outlined.Cloud),
-            UnifiedSourceItem("bunkr", "Bunkr Albums & Direct CDN", SourcePillCategory.CLOUD, "Auto-extract high bitrate videos from bunkr.cr / bunkr.ac / bunkr.ws albums", enabledProviderIds.contains("bunkr"), qualityTag = "Bunkr Direct", icon = Icons.Outlined.CloudDownload)
-        )
-    }
-
     // Aggregate all items based on selected pill & search query
-    val allItemsList = remember(normalProviders, adultProviders, vegaItems, vidSrcItems, decryptorItems, tmdbItems, nuvioItems, cloudItems) {
-        normalProviders + adultProviders + vegaItems + vidSrcItems + decryptorItems + tmdbItems + nuvioItems + cloudItems
+    val allItemsList = remember(normalProviders, adultProviders, vegaItems, vidSrcItems, decryptorItems, tmdbItems, nuvioItems) {
+        normalProviders + adultProviders + vegaItems + vidSrcItems + decryptorItems + tmdbItems + nuvioItems
     }
 
     val filteredItems = remember(selectedPill, searchQuery, allItemsList) {
@@ -308,7 +286,6 @@ fun UnifiedContentSourcesScreen(
             SourcePillCategory.DECRYPTOR -> decryptorItems
             SourcePillCategory.TMDB -> tmdbItems
             SourcePillCategory.NUVIO -> nuvioItems
-            SourcePillCategory.CLOUD -> cloudItems
         }
 
         if (searchQuery.isBlank()) {
@@ -420,7 +397,6 @@ fun UnifiedContentSourcesScreen(
                         SourcePillCategory.DECRYPTOR -> decryptorItems.size
                         SourcePillCategory.TMDB -> tmdbItems.size
                         SourcePillCategory.NUVIO -> nuvioItems.size
-                        SourcePillCategory.CLOUD -> cloudItems.size
                     }
 
                     FilterChip(
@@ -596,6 +572,112 @@ fun UnifiedContentSourcesScreen(
                             checked = isVegaMasterEnabled,
                             onCheckedChange = { viewModel.setVegaMasterEnabled(it) }
                         )
+                    }
+                }
+            }
+
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Butterfly-MediaServer (Vega & Nuvio Backend)",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    text = "Connected to Morningstar-1-star/Butterfly-MediaServer for cloud stream extraction.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            if (serverHealthStatus != null) {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (serverHealthStatus == true) Color(0xFF2E7D32).copy(alpha = 0.2f) else MaterialTheme.colorScheme.errorContainer
+                                ) {
+                                    Text(
+                                        text = if (serverHealthStatus == true) "Online" else "Offline",
+                                        color = if (serverHealthStatus == true) Color(0xFF4CAF50) else MaterialTheme.colorScheme.error,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        OutlinedTextField(
+                            value = customVegaUrlInput,
+                            onValueChange = { customVegaUrlInput = it },
+                            label = { Text("Server Base URL") },
+                            placeholder = { Text("https://butterfly-mediaserver.onrender.com") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        isTestingServerHealth = true
+                                        val healthy = com.example.vega.VegaProviderClient.checkServerHealth(customVegaUrlInput)
+                                        serverHealthStatus = healthy
+                                        isTestingServerHealth = false
+                                        Toast.makeText(
+                                            context,
+                                            if (healthy) "Server is online & reachable!" else "Could not reach server at ${customVegaUrlInput.take(40)}",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                },
+                                enabled = !isTestingServerHealth && customVegaUrlInput.isNotBlank(),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                if (isTestingServerHealth) {
+                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Testing...")
+                                } else {
+                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Ping Server")
+                                }
+                            }
+
+                            Button(
+                                onClick = {
+                                    viewModel.updateVegaServerUrl(customVegaUrlInput)
+                                    Toast.makeText(context, "Server URL updated!", Toast.LENGTH_SHORT).show()
+                                },
+                                enabled = customVegaUrlInput.isNotBlank(),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Save URL")
+                            }
+                        }
                     }
                 }
             }

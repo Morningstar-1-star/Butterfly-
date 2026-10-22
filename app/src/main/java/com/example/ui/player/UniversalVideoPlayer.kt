@@ -57,6 +57,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.res.Configuration
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.verticalScroll
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -74,6 +78,25 @@ import com.example.model.PlayableStreamOption
 import com.example.model.StreamData
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+private fun formatCleanQualityLabel(rawLabel: String): String {
+    val lower = rawLabel.lowercase().trim()
+    return when {
+        lower.contains("2160") || lower.contains("4k") -> "2160p (4K)"
+        lower.contains("1440") || lower.contains("2k") -> "1440p (2K)"
+        lower.contains("1080") || lower.contains("fhd") -> "1080p"
+        lower.contains("720") || (lower.contains("hd") && !lower.contains("fhd")) -> "720p"
+        lower.contains("480") || lower.contains("sd") -> "480p"
+        lower.contains("360") -> "360p"
+        lower.contains("240") -> "240p"
+        lower.contains("144") -> "144p"
+        lower.contains("auto") -> "Auto"
+        else -> {
+            val match = Regex("""\b(\d{3,4}p)\b""", RegexOption.IGNORE_CASE).find(rawLabel)
+            match?.value ?: rawLabel.take(12)
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -115,7 +138,7 @@ fun UniversalVideoPlayer(
     val activeStreamData by GlobalPlayerManager.activeStreamData.collectAsState()
 
     val globalPlaybackSpeed by GlobalPlayerManager.playbackSpeed.collectAsState()
-    var playbackSpeed by remember(globalPlaybackSpeed) { mutableFloatStateOf(globalPlaybackSpeed) }
+    var playbackSpeed by rememberSaveable { mutableFloatStateOf(globalPlaybackSpeed) }
     var resizeModeState by remember { mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT) }
     var customAspectRatio by remember { mutableStateOf<Float?>(null) }
     var customAspectRatioLabel by remember { mutableStateOf("Default") }
@@ -130,6 +153,10 @@ fun UniversalVideoPlayer(
     var showQualitySubMenu by remember { mutableStateOf(false) }
     var showAudioTrackSubMenu by remember { mutableStateOf(false) }
     var showAdditionalSettingsSubMenu by remember { mutableStateOf(false) }
+    var showVideoEffectsSubMenu by remember { mutableStateOf(false) }
+
+    val videoEffectsManager = remember(context) { com.example.ui.player.effects.VideoEffectsManager.getInstance(context) }
+    val videoEffectsConfig by videoEffectsManager.config.collectAsState()
 
     val isAmbientModeEnabled by playbackPrefs.ambientModeEnabled.collectAsState()
     val isLoopVideoEnabled by GlobalPlayerManager.isLoopEnabled.collectAsState()
@@ -185,6 +212,8 @@ fun UniversalVideoPlayer(
             val currentGlobal = GlobalPlayerManager.playbackSpeed.value
             if (currentGlobal != 1.0f) {
                 playbackSpeed = currentGlobal
+            } else if (playbackSpeed != 1.0f) {
+                GlobalPlayerManager.setPlaybackSpeed(playbackSpeed)
             } else {
                 val targetSpeed = playbackPrefs.getEffectiveSpeed(isMusic)
                 playbackSpeed = targetSpeed
@@ -339,8 +368,9 @@ fun UniversalVideoPlayer(
     val currentSubMode by GlobalPlayerManager.subtitleMode.collectAsState()
     val selectedSubTrack by GlobalPlayerManager.selectedSubtitleTrack.collectAsState()
     LaunchedEffect(streamData?.videoId, streamData?.captionOptions?.size) {
+        if (GlobalPlayerManager.isSubtitleExplicitlyClosed()) return@LaunchedEffect
         val captions = streamData?.captionOptions
-        if (!captions.isNullOrEmpty() && (selectedSubTrack == null || currentSubMode == GlobalPlayerManager.SubtitleMode.OFF)) {
+        if (!captions.isNullOrEmpty() && selectedSubTrack == null && currentSubMode != GlobalPlayerManager.SubtitleMode.OFF) {
             val bestCaption = captions.firstOrNull {
                 it.languageCode.startsWith("en", ignoreCase = true) || it.languageName.contains("english", ignoreCase = true)
             } ?: captions.firstOrNull()
@@ -783,6 +813,7 @@ fun UniversalVideoPlayer(
         val playerError by GlobalPlayerManager.playerError.collectAsState()
 
         val showLoadingIndicator = isBuffering || (!firstFrameRendered && playerError == null)
+        val currentStream = streamData ?: activeStreamData
 
         Box(
             modifier = Modifier
@@ -802,7 +833,6 @@ fun UniversalVideoPlayer(
             } else {
                 Modifier.fillMaxSize()
             }
-            val currentStream = streamData ?: activeStreamData
             val currentOption = streamOption ?: currentStream?.selectedStreamOption ?: currentStream?.availableStreamOptions?.firstOrNull()
             val isEmbedFormat = currentOption?.format.equals("embed", true) ||
                     (currentOption?.videoUrl?.contains("tubitv.com") == true && currentOption?.videoUrl?.contains(".m3u8") != true && currentOption?.videoUrl?.contains(".mp4") != true)
@@ -881,6 +911,13 @@ fun UniversalVideoPlayer(
                     )
                 }
             }
+
+            // Real-time video picture effects overlay (Brightness, Contrast, Saturation, AMOLED Deep Black, Night Shield)
+            com.example.ui.player.effects.VideoEffectsOverlay(
+                config = videoEffectsConfig,
+                modifier = hostModifier
+            )
+        } // Video Surface Zoom Box closed here! Zoom scales only the video, never player controls!
 
             // YouTube Lightweight White Buffering Spinner Overlay
             if (showLoadingIndicator && playerError == null) {
@@ -1505,54 +1542,44 @@ fun UniversalVideoPlayer(
                         }
                     )
                 }
-            }
 
-        // YouTube Style Settings Modal Bottom Sheet
-        if (showSettingsSheet) {
-            ModalBottomSheet(
-                onDismissRequest = {
-                    showSettingsSheet = false
-                    showSpeedSubMenu = false
-                    showQualitySubMenu = false
-                    showAudioTrackSubMenu = false
-                    showAdditionalSettingsSubMenu = false
-                },
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.onSurface
+        @Composable
+        fun SettingsContentLayout(onClose: () -> Unit) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 20.dp, end = 20.dp, bottom = 32.dp, top = 8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = when {
-                                showQualitySubMenu -> "Video Quality"
-                                showSpeedSubMenu -> "Playback Speed"
-                                showAudioTrackSubMenu -> "Audio Track & Language"
-                                showAdditionalSettingsSubMenu -> "Additional settings"
-                                else -> "Settings"
-                            },
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        if (showSpeedSubMenu || showQualitySubMenu || showAudioTrackSubMenu || showAdditionalSettingsSubMenu) {
-                            TextButton(onClick = {
-                                showSpeedSubMenu = false
-                                showQualitySubMenu = false
-                                showAudioTrackSubMenu = false
-                                showAdditionalSettingsSubMenu = false
-                            }) {
-                                Text("Back", color = MaterialTheme.colorScheme.primary)
-                            }
+                Text(
+                    text = when {
+                        showVideoEffectsSubMenu -> "Picture & Video Effects"
+                        showQualitySubMenu -> "Video Quality"
+                        showSpeedSubMenu -> "Playback Speed"
+                        showAudioTrackSubMenu -> "Audio Track & Language"
+                        showAdditionalSettingsSubMenu -> "Additional settings"
+                        else -> "Settings"
+                    },
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (showSpeedSubMenu || showQualitySubMenu || showAudioTrackSubMenu || showAdditionalSettingsSubMenu || showVideoEffectsSubMenu) {
+                        TextButton(onClick = {
+                            showSpeedSubMenu = false
+                            showQualitySubMenu = false
+                            showAudioTrackSubMenu = false
+                            showAdditionalSettingsSubMenu = false
+                            showVideoEffectsSubMenu = false
+                        }) {
+                            Text("Back", color = MaterialTheme.colorScheme.primary)
                         }
                     }
+                    IconButton(onClick = onClose) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
 
                     HorizontalDivider(
                         modifier = Modifier.padding(vertical = 12.dp),
@@ -1560,7 +1587,20 @@ fun UniversalVideoPlayer(
                     )
 
                     if (showQualitySubMenu) {
-                        if (availableStreamOptions.isEmpty()) {
+                        val cleanQualityList = remember(availableStreamOptions) {
+                            val cleanMap = LinkedHashMap<String, PlayableStreamOption>()
+                            availableStreamOptions.forEach { opt ->
+                                val cleanLabel = formatCleanQualityLabel(opt.qualityLabel)
+                                if (!cleanMap.containsKey(cleanLabel)) {
+                                    cleanMap[cleanLabel] = opt
+                                }
+                            }
+                            cleanMap.entries.sortedByDescending { entry ->
+                                Regex("""\d+""").find(entry.key)?.value?.toIntOrNull() ?: 0
+                            }
+                        }
+
+                        if (cleanQualityList.isEmpty()) {
                             Text(
                                 text = "Auto (Default quality stream)",
                                 color = MaterialTheme.colorScheme.primary,
@@ -1568,15 +1608,19 @@ fun UniversalVideoPlayer(
                                 modifier = Modifier.padding(vertical = 14.dp, horizontal = 12.dp)
                             )
                         } else {
-                            availableStreamOptions.forEach { option ->
-                                val isSelected = (streamOption?.qualityLabel == option.qualityLabel || streamOption?.videoUrl == option.videoUrl)
+                            cleanQualityList.forEach { entry ->
+                                val cleanLabel = entry.key
+                                val option = entry.value
+                                val isSelected = (streamOption?.qualityLabel == option.qualityLabel ||
+                                        streamOption?.videoUrl == option.videoUrl ||
+                                        formatCleanQualityLabel(streamOption?.qualityLabel ?: "") == cleanLabel)
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(8.dp))
                                         .clickable {
                                             onSelectStreamOption(option)
-                                            Toast.makeText(context, "Quality set to ${option.qualityLabel}", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Quality set to $cleanLabel", Toast.LENGTH_SHORT).show()
                                             showQualitySubMenu = false
                                             showSettingsSheet = false
                                         }
@@ -1584,20 +1628,12 @@ fun UniversalVideoPlayer(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Column {
-                                        Text(
-                                            text = option.qualityLabel,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                        )
-                                        if (option.format.isNotBlank()) {
-                                            Text(
-                                                text = option.format,
-                                                fontSize = 11.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
+                                    Text(
+                                        text = cleanLabel,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                    )
                                     if (isSelected) {
                                         Icon(
                                             imageVector = Icons.Default.Check,
@@ -1609,6 +1645,11 @@ fun UniversalVideoPlayer(
                                 }
                             }
                         }
+                    } else if (showVideoEffectsSubMenu) {
+                        com.example.ui.player.effects.VideoEffectsContent(
+                            effectsManager = videoEffectsManager,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     } else if (showSpeedSubMenu) {
                         Column(
                             verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -2149,8 +2190,9 @@ fun UniversalVideoPlayer(
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
+                            val currentCleanQuality = streamOption?.qualityLabel?.let { formatCleanQualityLabel(it) } ?: "Auto"
                             Text(
-                                text = streamOption?.qualityLabel ?: "Auto",
+                                text = currentCleanQuality,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.Bold
@@ -2184,6 +2226,39 @@ fun UniversalVideoPlayer(
                             }
                             Text(
                                 text = if (playbackSpeed == 1.0f) "Normal" else "${playbackSpeed}x",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        // 1.5 Video Effects & Picture Tuning
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { showVideoEffectsSubMenu = true }
+                                .padding(vertical = 14.dp, horizontal = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Tune,
+                                    contentDescription = "Video Effects & Picture Tuning",
+                                    tint = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Video Effects & Picture Tuning",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Text(
+                                text = videoEffectsConfig.activePreset.displayName,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.Bold
@@ -2527,6 +2602,62 @@ fun UniversalVideoPlayer(
                                 fontWeight = FontWeight.SemiBold
                             )
                         }
+                    }
+        }
+
+        // YouTube Style Settings: Modal Bottom Sheet (Portrait) or Slide-in Side Drawer (Landscape)
+        if (showSettingsSheet) {
+            val isLandscapeSettings = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+            val dismissSettingsAction: () -> Unit = {
+                showSettingsSheet = false
+                showSpeedSubMenu = false
+                showQualitySubMenu = false
+                showAudioTrackSubMenu = false
+                showAdditionalSettingsSubMenu = false
+                showVideoEffectsSubMenu = false
+            }
+
+            if (isLandscapeSettings) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .clickable(onClick = dismissSettingsAction)
+                ) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(360.dp)
+                            .align(Alignment.CenterEnd)
+                            .clickable(enabled = false) {},
+                        color = MaterialTheme.colorScheme.surface,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        shape = RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp),
+                        tonalElevation = 8.dp
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(rememberScrollState())
+                                .padding(start = 20.dp, end = 20.dp, bottom = 32.dp, top = 16.dp)
+                        ) {
+                            SettingsContentLayout(onClose = dismissSettingsAction)
+                        }
+                    }
+                }
+            } else {
+                ModalBottomSheet(
+                    onDismissRequest = dismissSettingsAction,
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState())
+                            .padding(start = 20.dp, end = 20.dp, bottom = 32.dp, top = 8.dp)
+                    ) {
+                        SettingsContentLayout(onClose = dismissSettingsAction)
                     }
                 }
             }

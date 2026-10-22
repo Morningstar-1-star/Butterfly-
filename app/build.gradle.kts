@@ -31,6 +31,9 @@ android {
   }
 
   packaging {
+    dex {
+      useLegacyPackaging = true
+    }
     jniLibs {
       useLegacyPackaging = true
     }
@@ -58,10 +61,13 @@ android {
     create("release") {
       val keystorePath =
         System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
-      storeFile = file(keystorePath)
-      storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
-      keyPassword = System.getenv("KEY_PASSWORD")
+      val kFile = file(keystorePath)
+      if (kFile.exists()) {
+        storeFile = kFile
+        storePassword = System.getenv("STORE_PASSWORD") ?: "android"
+        keyAlias = System.getenv("KEY_ALIAS") ?: "upload"
+        keyPassword = System.getenv("KEY_PASSWORD") ?: "android"
+      }
     }
   }
 
@@ -74,7 +80,8 @@ android {
         getDefaultProguardFile("proguard-android-optimize.txt"),
         "proguard-rules.pro"
       )
-      signingConfig = signingConfigs.getByName("release")
+      val releaseKeystore = file(System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks")
+      signingConfig = if (releaseKeystore.exists()) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
     }
 
     debug {
@@ -102,12 +109,6 @@ android {
   dependenciesInfo {
     includeInApk = false
     includeInBundle = true
-  }
-
-  packaging {
-    jniLibs {
-      useLegacyPackaging = true
-    }
   }
 }
 
@@ -149,7 +150,7 @@ dependencies {
   implementation(libs.jsoup)
 
   implementation(libs.yt.dlp.android)
-  implementation(libs.yt.dlp.android.compat)
+  // implementation(libs.yt.dlp.android.compat)
 
   implementation(libs.kotlinx.coroutines.android)
   implementation(libs.kotlinx.coroutines.core)

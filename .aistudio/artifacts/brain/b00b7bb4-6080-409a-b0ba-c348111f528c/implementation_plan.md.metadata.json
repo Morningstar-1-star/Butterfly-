@@ -1,6 +1,6 @@
 {
-  "summary":  "Comprehensive architectural and performance optimization plan to reduce APK size by ~60 MB, remove dead/dummy features (ML Kit OCR, DRM OTT scrapers, CloudSocial/Bunkr/Vault, simulated shaders/badges), wire genuine yt-dlp GitHub OTA updates while routing movie/series scraping to Butterfly-MediaServer, and achieve 120fps scrolling with instant HD thumbnail loading.",
-  "updatedAt":  "2026-10-21T10:35:03.660066517Z",
+  "summary":  "Comprehensive implementation plan to reduce APK size to ~45MB with signed Release R8 builds, fix SupJav demo videos with live JAV scrapers, connect Vega and Nuvio to Butterfly-MediaServer, and achieve sub-second instant video playback with 800ms buffer control and player recycling.",
+  "updatedAt":  "2026-10-22T02:47:46.434824167Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

@@ -112,6 +112,7 @@ class PlaybackSession(private val appContext: Context) {
 
     private val _subtitleMode = MutableStateFlow(SubtitleMode.OFF)
     val subtitleMode: StateFlow<SubtitleMode> = _subtitleMode.asStateFlow()
+    var userExplicitlyClosedSubtitles: Boolean = false
 
     private val _bilibiliSubtitleTracks = MutableStateFlow<List<CaptionOption>>(emptyList())
     val bilibiliSubtitleTracks: StateFlow<List<CaptionOption>> = _bilibiliSubtitleTracks.asStateFlow()
@@ -534,17 +535,18 @@ class PlaybackSession(private val appContext: Context) {
         currentLoadedMediaKey = mediaKey
         resumeController.setPendingResumePosition(effectiveResumePos.takeIf { it > 0L })
 
-        // Auto-enable captions if available on the stream
-        val initialCaption = captionOption ?: streamData?.captionOptions?.firstOrNull {
-            it.languageCode.startsWith("en", ignoreCase = true) || it.languageName.contains("english", ignoreCase = true)
-        } ?: streamData?.captionOptions?.firstOrNull()
+        // Auto-enable captions only if user has NOT explicitly closed them
+        if (!userExplicitlyClosedSubtitles) {
+            val initialCaption = captionOption ?: streamData?.captionOptions?.firstOrNull {
+                it.languageCode.startsWith("en", ignoreCase = true) || it.languageName.contains("english", ignoreCase = true)
+            } ?: streamData?.captionOptions?.firstOrNull()
 
-        if (initialCaption != null) {
-            selectCaptionOption(appContext ?: context, initialCaption)
+            if (initialCaption != null) {
+                selectCaptionOption(appContext ?: context, initialCaption)
+            }
         }
 
         try {
-            player.stop()
             player.clearMediaItems()
 
             val mediaSource = MediaSourceFactoryHelper.buildMediaSource(
@@ -705,6 +707,7 @@ class PlaybackSession(private val appContext: Context) {
 
     fun setSubtitleMode(mode: SubtitleMode) {
         _subtitleMode.value = mode
+        userExplicitlyClosedSubtitles = (mode == SubtitleMode.OFF)
     }
 
     fun setTargetCaptionLanguage(langCode: String) {
@@ -730,8 +733,10 @@ class PlaybackSession(private val appContext: Context) {
             _currentActiveSubtitleText.value = ""
             _currentActiveTranslatedText.value = ""
             _subtitleMode.value = SubtitleMode.OFF
+            userExplicitlyClosedSubtitles = true
             return
         }
+        userExplicitlyClosedSubtitles = false
 
         val rawUrl = option.url
         if (rawUrl.isBlank()) return

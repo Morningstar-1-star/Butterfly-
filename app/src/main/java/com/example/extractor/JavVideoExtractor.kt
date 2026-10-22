@@ -52,15 +52,15 @@ object JavVideoExtractor {
         when (pid) {
             "supjav" -> {
                 val list = SupJavProvider.getHome(limit, page, context)
-                if (list.isNotEmpty()) list else getCuratedJavCatalog(limit, page)
+                if (list.isNotEmpty()) list else get123AvHome(limit, page).ifEmpty { getJavtifulHome(limit, page) }
             }
             "123av", "javplayer" -> {
                 val list = get123AvHome(limit, page)
-                if (list.isNotEmpty()) list else getCuratedJavCatalog(limit, page)
+                if (list.isNotEmpty()) list else getJavtifulHome(limit, page).ifEmpty { getAllJavHome(limit, page, context) }
             }
             "javtiful" -> {
                 val list = getJavtifulHome(limit, page)
-                if (list.isNotEmpty()) list else getCuratedJavCatalog(limit, page)
+                if (list.isNotEmpty()) list else get123AvHome(limit, page).ifEmpty { getAllJavHome(limit, page, context) }
             }
             "jav_all", "all_jav" -> getAllJavHome(limit, page, context)
             else -> getAllJavHome(limit, page, context)
@@ -93,7 +93,7 @@ object JavVideoExtractor {
     // ----------------------------------------------------
     // 123AV Extractor
     // ----------------------------------------------------
-    private fun get123AvHome(limit: Int, page: Int): List<VideoItem> {
+    fun get123AvHome(limit: Int, page: Int): List<VideoItem> {
         val urls = listOf(
             if (page <= 1) "https://123av.com/en" else "https://123av.com/en/new?page=$page",
             if (page <= 1) "https://123av.com/en/ranking" else "https://123av.com/en/ranking?page=$page"
@@ -105,7 +105,7 @@ object JavVideoExtractor {
         return emptyList()
     }
 
-    private fun search123Av(query: String, limit: Int, page: Int): List<VideoItem> {
+    fun search123Av(query: String, limit: Int, page: Int): List<VideoItem> {
         val encoded = try { URLEncoder.encode(query, "UTF-8") } catch (e: Exception) { query }
         val url = if (page <= 1) {
             "https://123av.com/en/search?keyword=$encoded"
@@ -174,7 +174,7 @@ object JavVideoExtractor {
     // ----------------------------------------------------
     // Javtiful Extractor
     // ----------------------------------------------------
-    private fun getJavtifulHome(limit: Int, page: Int): List<VideoItem> {
+    fun getJavtifulHome(limit: Int, page: Int): List<VideoItem> {
         val urls = listOf(
             if (page <= 1) "https://javtiful.com" else "https://javtiful.com/trending?page=$page",
             if (page <= 1) "https://javtiful.com/recent" else "https://javtiful.com/recent?page=$page"
@@ -186,7 +186,7 @@ object JavVideoExtractor {
         return emptyList()
     }
 
-    private fun searchJavtiful(query: String, limit: Int, page: Int): List<VideoItem> {
+    fun searchJavtiful(query: String, limit: Int, page: Int): List<VideoItem> {
         val encoded = try { URLEncoder.encode(query, "UTF-8") } catch (e: Exception) { query }
         val url = if (page <= 1) {
             "https://javtiful.com/search?q=$encoded"
@@ -263,7 +263,7 @@ object JavVideoExtractor {
     // ----------------------------------------------------
     // Aggregator (All JAV Sources)
     // ----------------------------------------------------
-    private suspend fun getAllJavHome(limit: Int, page: Int, context: Context?): List<VideoItem> = coroutineScope {
+    suspend fun getAllJavHome(limit: Int, page: Int, context: Context?): List<VideoItem> = coroutineScope {
         val d0 = async { SupJavProvider.getHome(limit, page, context) }
         val d1 = async { SextbProvider.getHome(limit, page, context) }
         val d2 = async { get123AvHome(limit, page) }
@@ -300,11 +300,11 @@ object JavVideoExtractor {
         if (distinct.isNotEmpty()) {
             distinct.take(limit)
         } else {
-            getCuratedJavCatalog(limit, page)
+            emptyList()
         }
     }
 
-    private suspend fun searchAllJav(query: String, limit: Int, page: Int, context: Context?): List<VideoItem> = coroutineScope {
+    suspend fun searchAllJav(query: String, limit: Int, page: Int, context: Context?): List<VideoItem> = coroutineScope {
         val d0 = async { SupJavProvider.search(query, limit, page, context) }
         val d1 = async { SextbProvider.search(query, limit, page, context) }
         val d2 = async { search123Av(query, limit, page) }
@@ -330,9 +330,7 @@ object JavVideoExtractor {
         if (combined.isNotEmpty()) {
             combined.take(limit)
         } else {
-            getCuratedJavCatalog(limit, page).filter {
-                it.title.contains(query, ignoreCase = true) || (it.uploaderName?.contains(query, ignoreCase = true) == true)
-            }.ifEmpty { getCuratedJavCatalog(limit, page) }
+            emptyList()
         }
     }
 
@@ -520,50 +518,56 @@ object JavVideoExtractor {
             }
         }
 
-        // 4. Cross-Provider JAV Code Matching & Resilient 1080p CDN Fallback
-        val javCode = JavEnglishTitleHelper.extractJavCode(videoIdOrUrl)
-        if (javCode.isNotBlank()) {
+        // 4. Direct Eporner ID check if prefixed with 123av_ or javtiful_
+        val strippedId = videoIdOrUrl.removePrefix("123av_").removePrefix("javtiful_").removePrefix("supjav_").removePrefix("sextb_").trim()
+        if (strippedId.matches(Regex("^[a-zA-Z0-9]{5,15}$")) && !strippedId.contains("-")) {
             try {
-                val epSearch = EpornerProvider.search(javCode, limit = 4, page = 1)
-                for (item in epSearch) {
-                    val epStream = EpornerProvider.getStreamData(item.id, context)
-                    if (epStream != null && epStream.availableStreamOptions.isNotEmpty()) {
-                        return@withContext epStream.copy(
-                            videoId = videoIdOrUrl,
-                            title = JavEnglishTitleHelper.toEnglishTitle(epStream.title, javCode),
-                            channelName = "JAV HD Studio • $javCode",
-                            providerId = "jav_all"
-                        )
+                val epDirect = EpornerProvider.getStreamData(strippedId, context)
+                if (epDirect != null && epDirect.availableStreamOptions.isNotEmpty()) {
+                    val detectedProvider = when {
+                        lower.startsWith("123av_") -> "123av"
+                        lower.startsWith("javtiful_") -> "javtiful"
+                        lower.startsWith("supjav_") -> "supjav"
+                        lower.startsWith("sextb_") -> "sextb"
+                        else -> "jav_all"
                     }
+                    return@withContext epDirect.copy(
+                        videoId = videoIdOrUrl,
+                        title = JavEnglishTitleHelper.toEnglishTitle(epDirect.title, strippedId),
+                        providerId = detectedProvider
+                    )
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Cross-provider JAV fallback note: ${e.message}")
-            }
+            } catch (_: Exception) {}
         }
 
-        // 5. Fallback to Web Embed Player
-        val embedUrl = if (videoIdOrUrl.startsWith("http")) videoIdOrUrl else "https://missav.ws/v/$javCode"
-        val embedOption = PlayableStreamOption(
-            qualityLabel = "JAV Web Player (HD)",
-            format = "embed",
-            isMuxed = true,
-            videoUrl = embedUrl,
-            providerType = ProviderType.EMBED,
-            headers = mapOf("User-Agent" to userAgent)
-        )
+        // 5. Cross-Provider JAV Code Matching & Resilient 1080p CDN Fallback
+        val javCode = JavEnglishTitleHelper.extractJavCode(videoIdOrUrl)
+        val searchQ = if (javCode.isNotBlank()) "JAV $javCode" else "JAV ${strippedId.replace("_", " ").replace("-", " ").take(25)}"
+        try {
+            val epSearch = EpornerProvider.search(searchQ, limit = 4, page = 1).ifEmpty {
+                EpornerProvider.search("JAV Uncensored HD", limit = 4, page = 1)
+            }
+            for (item in epSearch) {
+                val epStream = EpornerProvider.getStreamData(item.id, context)
+                if (epStream != null && epStream.availableStreamOptions.isNotEmpty()) {
+                    return@withContext epStream.copy(
+                        videoId = videoIdOrUrl,
+                        title = JavEnglishTitleHelper.toEnglishTitle(epStream.title, javCode),
+                        channelName = if (javCode.isNotBlank()) "JAV HD Studio • $javCode" else "JAV HD Studio",
+                        providerId = when {
+                            lower.startsWith("123av_") -> "123av"
+                            lower.startsWith("javtiful_") -> "javtiful"
+                            lower.startsWith("supjav_") -> "supjav"
+                            else -> "jav_all"
+                        }
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Cross-provider JAV fallback note: ${e.message}")
+        }
 
-        StreamData(
-            videoId = videoIdOrUrl,
-            videoUrl = embedUrl,
-            title = JavEnglishTitleHelper.toEnglishTitle(videoIdOrUrl, javCode),
-            channelName = if (javCode.isNotBlank()) "JAV Studio • $javCode" else "Japanese Adult Video HD",
-            description = "High Definition Japanese Adult Video Stream",
-            availableStreamOptions = listOf(embedOption),
-            selectedStreamOption = embedOption,
-            providerId = "jav_all",
-            providerType = ProviderType.EMBED,
-            headers = mapOf("User-Agent" to userAgent)
-        )
+        null
     }
 
     suspend fun resolveStreamsForCode(code: String): List<PlayableStreamOption> = withContext(Dispatchers.IO) {
@@ -572,79 +576,33 @@ object JavVideoExtractor {
         if (cleanCode.isBlank()) return@withContext emptyList()
 
         try {
-            // 1. Try 123av
-            val avStream = extractStream("123av_$cleanCode")
-            if (avStream != null && avStream.availableStreamOptions.isNotEmpty()) {
-                options.addAll(avStream.availableStreamOptions)
+            // 1. Try Eporner JAV Search first (fastest & direct MP4)
+            val epItems = EpornerProvider.search(cleanCode, limit = 3, page = 1).ifEmpty {
+                EpornerProvider.search("JAV $cleanCode", limit = 3, page = 1)
             }
-        } catch (_: Exception) {}
-
-        try {
-            // 2. Try Sextb
-            val sexStream = SextbProvider.getStreamData("sextb_$cleanCode")
-            if (sexStream != null && sexStream.availableStreamOptions.isNotEmpty()) {
-                options.addAll(sexStream.availableStreamOptions)
-            }
-        } catch (_: Exception) {}
-
-        try {
-            // 3. Try Eporner JAV Search
-            val epItems = EpornerProvider.search(cleanCode, limit = 3, page = 1)
             for (epItem in epItems) {
                 val epStream = EpornerProvider.getStreamData(epItem.id)
                 if (epStream != null && epStream.availableStreamOptions.isNotEmpty()) {
                     options.addAll(epStream.availableStreamOptions)
+                    break
                 }
             }
         } catch (_: Exception) {}
 
-        // 4. Guaranteed MissAV / Web Player Fallback
         if (options.isEmpty()) {
-            val embedUrl = "https://missav.ws/v/$cleanCode"
-            options.add(
-                PlayableStreamOption(
-                    qualityLabel = "JAV Web Player (HD)",
-                    format = "embed",
-                    isMuxed = true,
-                    videoUrl = embedUrl,
-                    providerType = ProviderType.EMBED,
-                    headers = mapOf("User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                )
-            )
+            try {
+                // 2. Try XNXX JAV Search
+                val xnItems = XnxxProvider.search("jav $cleanCode", limit = 3, page = 1)
+                for (xnItem in xnItems) {
+                    val xnStream = XnxxProvider.getStreamData(xnItem.id)
+                    if (xnStream != null && xnStream.availableStreamOptions.isNotEmpty()) {
+                        options.addAll(xnStream.availableStreamOptions)
+                        break
+                    }
+                }
+            } catch (_: Exception) {}
         }
 
-        options.distinctBy { it.videoUrl }
-    }
-
-    /**
-     * Curated catalog of authentic Japanese Adult Video releases with real English titles.
-     */
-    private fun getCuratedJavCatalog(limit: Int, page: Int): List<VideoItem> {
-        val curated = listOf(
-            Triple("SSIS-999", "Yua Mikami - Secret Romantic Evening & Passionate Vacation (1080p Full HD)", "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=600&auto=format&fit=crop&q=80"),
-            Triple("IPX-888", "Eimi Fukada - Gorgeous Housewife Sensual Seduction Special (1080p Full HD)", "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=600&auto=format&fit=crop&q=80"),
-            Triple("STARS-777", "Arina Hashimoto - Exclusive Model Debut & Private Encounter (1080p Full HD)", "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=600&auto=format&fit=crop&q=80"),
-            Triple("MIDE-666", "Saika Kawakita - Beautiful Glamour Model Luxury Resort Getaway (1080p Full HD)", "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=600&auto=format&fit=crop&q=80"),
-            Triple("JUL-555", "Minami Aizawa - Mature Housewife Secret Love Affair (1080p Full HD)", "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=600&auto=format&fit=crop&q=80"),
-            Triple("PRED-444", "Tsukasa Aoi - Executive Office Romance & Private Lesson (1080p Full HD)", "https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?w=600&auto=format&fit=crop&q=80"),
-            Triple("ABW-333", "Karen Yuzuriha - Sensual Spa & Hot Springs Massage Special (1080p Full HD)", "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=600&auto=format&fit=crop&q=80"),
-            Triple("FC2-PPV-332112", "Japanese Amateur Model First Audition POV Experience (Uncensored 1080p)", "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?w=600&auto=format&fit=crop&q=80"),
-            Triple("MIDV-222", "Remu Suzumori - Passionate Co-living Romance & Sweet Whispers (1080p Full HD)", "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=600&auto=format&fit=crop&q=80"),
-            Triple("SONE-111", "Moe Amatsuka - Beautiful College Girl Romantic Holiday Special (1080p Full HD)", "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=600&auto=format&fit=crop&q=80")
-        )
-
-        return curated.take(limit).mapIndexed { idx, (code, title, thumb) ->
-            VideoItem(
-                id = "supjav_${code.lowercase()}",
-                title = title,
-                uploaderName = "SupJav • $code",
-                uploaderUrl = "supjav_$code",
-                thumbnailUrl = thumb,
-                durationSeconds = 7200L,
-                viewCount = 450_000L + (idx * 35_000L),
-                providerId = "supjav",
-                description = "SupJav Official Japanese Release • Code: $code"
-            )
-        }
+        options.filter { !it.videoUrl.isNullOrBlank() && it.providerType != ProviderType.EMBED }.distinctBy { it.videoUrl }
     }
 }

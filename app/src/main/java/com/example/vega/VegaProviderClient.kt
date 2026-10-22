@@ -67,7 +67,16 @@ object VegaProviderClient {
                 .url("$base/health")
                 .header("Accept", "application/json")
                 .build()
-            client.newCall(req).execute().use { resp ->
+            val ok = client.newCall(req).execute().use { resp ->
+                resp.isSuccessful
+            }
+            if (ok) return@withContext true
+
+            val reqFallback = Request.Builder()
+                .url("$base/providers")
+                .header("Accept", "application/json")
+                .build()
+            client.newCall(reqFallback).execute().use { resp ->
                 resp.isSuccessful
             }
         } catch (e: CancellationException) {
@@ -88,25 +97,45 @@ object VegaProviderClient {
                 client.newCall(request).execute().use { response ->
                     if (response.isSuccessful) {
                         val body = response.body?.string() ?: ""
-                        val root = JSONObject(body)
-                        val arr = root.optJSONArray("providers")
-                        if (arr != null && arr.length() > 0) {
-                            val list = mutableListOf<String>()
+                        val trimmed = body.trim()
+                        val list = mutableListOf<String>()
+                        if (trimmed.startsWith("[")) {
+                            val arr = JSONArray(trimmed)
                             for (i in 0 until arr.length()) {
                                 val item = arr.opt(i)
                                 when (item) {
                                     is JSONObject -> {
-                                        val id = item.optString("id").trim()
+                                        val id = item.optString("id").ifBlank { item.optString("name") }.trim()
                                         if (id.isNotBlank()) list.add(id)
                                     }
-                                    is String -> {
-                                        if (item.isNotBlank()) list.add(item.trim())
-                                    }
+                                    is String -> if (item.isNotBlank()) list.add(item.trim())
                                 }
                             }
                             if (list.isNotEmpty()) {
                                 VegaProviderRegistry.updateProvidersFromServer(arr)
                                 return@withContext list
+                            }
+                        } else if (trimmed.startsWith("{")) {
+                            val root = JSONObject(trimmed)
+                            val arr = root.optJSONArray("providers")
+                                ?: root.optJSONArray("data")
+                                ?: root.optJSONArray("vega")
+                                ?: root.optJSONArray("nuvio")
+                            if (arr != null && arr.length() > 0) {
+                                for (i in 0 until arr.length()) {
+                                    val item = arr.opt(i)
+                                    when (item) {
+                                        is JSONObject -> {
+                                            val id = item.optString("id").ifBlank { item.optString("name") }.trim()
+                                            if (id.isNotBlank()) list.add(id)
+                                        }
+                                        is String -> if (item.isNotBlank()) list.add(item.trim())
+                                    }
+                                }
+                                if (list.isNotEmpty()) {
+                                    VegaProviderRegistry.updateProvidersFromServer(arr)
+                                    return@withContext list
+                                }
                             }
                         }
                     }

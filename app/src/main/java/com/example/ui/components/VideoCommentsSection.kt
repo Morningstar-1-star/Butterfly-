@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.ClickableText
@@ -30,26 +31,32 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.model.VideoComment
+import com.example.util.CommentTextCleaner
 import java.util.regex.Pattern
 
 private val YT_BLUE_LINK = Color(0xFF3EA6FF)
-private val YT_DARK_SURFACE = Color(0xFF1E1E1E)
-private val YT_DARK_CARD = Color(0xFF282828)
+private val AMOLED_BLACK = Color(0xFF000000)
+private val AMOLED_SURFACE = Color(0xFF0D0D0D)
+private val AMOLED_CARD = Color(0xFF141414)
+private val AMOLED_BORDER = Color(0xFF222222)
 private val YT_SECONDARY_TEXT = Color(0xFFAAAAAA)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VideoCommentsSection(
     comments: List<VideoComment>,
+    totalCommentsCount: Long? = null,
     isLoading: Boolean = false,
+    isLoadingMore: Boolean = false,
     onAddComment: (String) -> Unit = {},
     onLikeComment: (String) -> Unit = {},
     onSeekToTimestamp: (Long) -> Unit = {},
     onRefresh: () -> Unit = {},
+    onLoadMore: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var userCommentInput by remember { mutableStateOf("") }
-    var selectedFilter by remember { mutableStateOf("Top") } // Top, Newest
+    var selectedFilter by remember { mutableStateOf("Top") }
     val filterOptions = listOf("Top", "Newest")
 
     val sortedComments = remember(comments, selectedFilter) {
@@ -58,6 +65,8 @@ fun VideoCommentsSection(
             else -> comments.sortedByDescending { it.likeCount }
         }
     }
+
+    val displayCount = totalCommentsCount ?: comments.size.toLong()
 
     Column(
         modifier = modifier
@@ -77,14 +86,14 @@ fun VideoCommentsSection(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "Comments (${comments.size})",
+                text = "Comments (${formatCommentCount(displayCount)})",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
             )
             Spacer(modifier = Modifier.weight(1f))
 
-            // Refresh Button & Sort Pills
+            // Refresh Button
             IconButton(
                 onClick = { onRefresh() },
                 modifier = Modifier.size(32.dp),
@@ -110,7 +119,7 @@ fun VideoCommentsSection(
                     colors = FilterChipDefaults.filterChipColors(
                         selectedContainerColor = MaterialTheme.colorScheme.primary,
                         selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        containerColor = AMOLED_CARD
                     ),
                     shape = RoundedCornerShape(20.dp)
                 )
@@ -125,7 +134,7 @@ fun VideoCommentsSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    color = AMOLED_CARD,
                     shape = RoundedCornerShape(24.dp)
                 )
                 .padding(horizontal = 12.dp, vertical = 6.dp)
@@ -151,7 +160,7 @@ fun VideoCommentsSection(
                 value = userCommentInput,
                 onValueChange = { userCommentInput = it },
                 placeholder = {
-                    Text("Add a comment...", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Add a comment...", fontSize = 14.sp, color = YT_SECONDARY_TEXT)
                 },
                 singleLine = false,
                 maxLines = 3,
@@ -159,7 +168,9 @@ fun VideoCommentsSection(
                     focusedContainerColor = Color.Transparent,
                     unfocusedContainerColor = Color.Transparent,
                     focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent
+                    unfocusedIndicatorColor = Color.Transparent,
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White
                 ),
                 modifier = Modifier.weight(1f)
             )
@@ -167,7 +178,7 @@ fun VideoCommentsSection(
             if (userCommentInput.isNotBlank()) {
                 IconButton(
                     onClick = {
-                        onAddComment(userCommentInput)
+                        onAddComment(userCommentInput.trim())
                         userCommentInput = ""
                     }
                 ) {
@@ -202,7 +213,7 @@ fun VideoCommentsSection(
                 Icon(
                     imageVector = Icons.Outlined.ChatBubbleOutline,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    tint = YT_SECONDARY_TEXT.copy(alpha = 0.5f),
                     modifier = Modifier.size(40.dp)
                 )
                 Spacer(modifier = Modifier.height(12.dp))
@@ -214,7 +225,7 @@ fun VideoCommentsSection(
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "Tap below to fetch YouTube comments or be the first to post!",
+                    text = "Tap below to fetch real community comments or post yours!",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                 )
@@ -241,6 +252,17 @@ fun VideoCommentsSection(
                         onSeekToTimestamp = onSeekToTimestamp
                     )
                 }
+
+                if (isLoadingMore) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                    }
+                }
             }
         }
     }
@@ -258,6 +280,11 @@ fun SingleCommentCard(
 ) {
     var isExpanded by remember { mutableStateOf(false) }
 
+    // Defensive sanitization of comment text to guarantee zero raw HTML leakage
+    val cleanCommentText = remember(comment.commentText) {
+        CommentTextCleaner.cleanCommentText(comment.commentText)
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -269,7 +296,7 @@ fun SingleCommentCard(
             modifier = Modifier
                 .size(36.dp)
                 .clip(CircleShape)
-                .background(Color(0xFF333333)),
+                .background(AMOLED_CARD),
             contentAlignment = Alignment.Center
         ) {
             if (!comment.authorAvatarUrl.isNullOrBlank()) {
@@ -305,7 +332,7 @@ fun SingleCommentCard(
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold
                     ),
-                    color = Color(0xFFCCCCCC),
+                    color = Color(0xFFDDDDDD),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -322,7 +349,7 @@ fun SingleCommentCard(
                     Spacer(modifier = Modifier.width(6.dp))
                     Surface(
                         shape = RoundedCornerShape(4.dp),
-                        color = Color(0xFF333333)
+                        color = AMOLED_CARD
                     ) {
                         Text(
                             text = comment.sourceBadge,
@@ -338,11 +365,11 @@ fun SingleCommentCard(
             Spacer(modifier = Modifier.height(4.dp))
 
             // Comment Text with Parsed Clickable Timestamps
-            val annotatedText = remember(comment.commentText) {
-                buildAnnotatedStringWithTimestamps(comment.commentText)
+            val annotatedText = remember(cleanCommentText) {
+                buildAnnotatedStringWithTimestamps(cleanCommentText)
             }
 
-            val isLongComment = comment.commentText.length > 200 || comment.commentText.count { it == '\n' } > 3
+            val isLongComment = cleanCommentText.length > 200 || cleanCommentText.count { it == '\n' } > 3
 
             ClickableText(
                 text = annotatedText,
@@ -400,7 +427,7 @@ fun SingleCommentCard(
                     if (comment.likeCount > 0) {
                         Spacer(modifier = Modifier.width(5.dp))
                         Text(
-                            text = formatCount(comment.likeCount),
+                            text = formatCommentCount(comment.likeCount.toLong()),
                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                             color = if (comment.isLikedByMe) YT_BLUE_LINK else YT_SECONDARY_TEXT
                         )
@@ -462,12 +489,7 @@ private fun buildAnnotatedStringWithTimestamps(text: String): AnnotatedString {
             val end = matcher.end()
             val matchStr = matcher.group()
 
-            val parts = matchStr.split(":")
-            val totalSeconds = when (parts.size) {
-                3 -> (parts[0].toLongOrNull() ?: 0L) * 3600 + (parts[1].toLongOrNull() ?: 0L) * 60 + (parts[2].toLongOrNull() ?: 0L)
-                2 -> (parts[0].toLongOrNull() ?: 0L) * 60 + (parts[1].toLongOrNull() ?: 0L)
-                else -> 0L
-            }
+            val seconds = CommentTextCleaner.parseTimestampSeconds(matchStr) ?: 0L
 
             addStyle(
                 style = SpanStyle(
@@ -480,7 +502,7 @@ private fun buildAnnotatedStringWithTimestamps(text: String): AnnotatedString {
             )
             addStringAnnotation(
                 tag = "TIMESTAMP",
-                annotation = "$totalSeconds",
+                annotation = "$seconds",
                 start = start,
                 end = end
             )
@@ -488,25 +510,30 @@ private fun buildAnnotatedStringWithTimestamps(text: String): AnnotatedString {
     }
 }
 
-private fun formatCount(count: Int): String {
+fun formatCommentCount(count: Long): String {
     return when {
-        count >= 1_000_000 -> String.format("%.1fM", count / 1_000_000.0)
-        count >= 1_000 -> String.format("%.1fK", count / 1000.0)
-        else -> "$count"
+        count >= 1_000_000 -> String.format(java.util.Locale.US, "%.1fM", count / 1_000_000.0)
+        count >= 1_000 -> String.format(java.util.Locale.US, "%.1fK", count / 1000.0)
+        count > 0 -> "$count"
+        else -> "0"
     }
 }
 
 /**
- * YouTube-style Full Comments Bottom Sheet / Panel
+ * YouTube-style Full Comments Bottom Sheet / Panel with Pure AMOLED Black Design
+ * and Infinite Scroll Multi-Page Pagination.
  */
 @Composable
 fun CommentsPanel(
     comments: List<VideoComment>,
+    totalCommentsCount: Long? = null,
     isLoading: Boolean = false,
+    isLoadingMore: Boolean = false,
     onAddComment: (String) -> Unit = {},
     onLikeComment: (String) -> Unit = {},
     onSeekToTimestamp: (Long) -> Unit = {},
     onRefresh: () -> Unit = {},
+    onLoadMore: () -> Unit = {},
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -522,13 +549,35 @@ fun CommentsPanel(
         }
     }
 
+    val listState = rememberLazyListState()
+
+    // Trigger loading more comments when user approaches the end of the list
+    val shouldLoadMore by remember(sortedComments.size, isLoading, isLoadingMore) {
+        derivedStateOf {
+            val totalItems = sortedComments.size
+            if (totalItems == 0 || isLoading || isLoadingMore) return@derivedStateOf false
+            val lastVisibleItemIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            lastVisibleItemIndex >= totalItems - 4
+        }
+    }
+
+    LaunchedEffect(shouldLoadMore) {
+        if (shouldLoadMore) {
+            onLoadMore()
+        }
+    }
+
+    val displayCount = totalCommentsCount ?: comments.size.toLong()
+
     Surface(
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
-        color = Color(0xFF0F0F0F),
+        color = AMOLED_BLACK,
         modifier = modifier.fillMaxSize()
     ) {
         Column(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .background(AMOLED_BLACK)
         ) {
             // Drag handle
             Box(
@@ -541,7 +590,7 @@ fun CommentsPanel(
                     modifier = Modifier
                         .width(40.dp)
                         .height(4.dp)
-                        .background(Color(0xFF555555), RoundedCornerShape(2.dp))
+                        .background(Color(0xFF333333), RoundedCornerShape(2.dp))
                 )
             }
 
@@ -558,12 +607,12 @@ fun CommentsPanel(
                     fontSize = 18.sp,
                     color = Color.White
                 )
-                if (comments.isNotEmpty()) {
+                if (displayCount > 0) {
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = formatCount(comments.size),
+                        text = formatCommentCount(displayCount),
                         fontSize = 15.sp,
-                        fontWeight = FontWeight.Normal,
+                        fontWeight = FontWeight.Medium,
                         color = YT_SECONDARY_TEXT
                     )
                 }
@@ -575,7 +624,7 @@ fun CommentsPanel(
                     val isSelected = selectedFilter == filter
                     Surface(
                         shape = RoundedCornerShape(16.dp),
-                        color = if (isSelected) Color.White else Color(0xFF272727),
+                        color = if (isSelected) Color.White else AMOLED_CARD,
                         modifier = Modifier
                             .padding(start = 6.dp)
                             .clickable { selectedFilter = filter }
@@ -605,13 +654,14 @@ fun CommentsPanel(
                 }
             }
 
-            HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
+            HorizontalDivider(color = AMOLED_BORDER, thickness = 0.5.dp)
 
             // Comments List Area
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
+                    .background(AMOLED_BLACK)
             ) {
                 if (isLoading && comments.isEmpty()) {
                     Box(
@@ -643,7 +693,7 @@ fun CommentsPanel(
                         Icon(
                             imageVector = Icons.Outlined.ChatBubbleOutline,
                             contentDescription = null,
-                            tint = Color(0xFF666666),
+                            tint = Color(0xFF555555),
                             modifier = Modifier.size(48.dp)
                         )
                         Spacer(modifier = Modifier.height(12.dp))
@@ -662,7 +712,11 @@ fun CommentsPanel(
                         Spacer(modifier = Modifier.height(16.dp))
                         FilledTonalButton(
                             onClick = onRefresh,
-                            shape = RoundedCornerShape(20.dp)
+                            shape = RoundedCornerShape(20.dp),
+                            colors = ButtonDefaults.filledTonalButtonColors(
+                                containerColor = AMOLED_CARD,
+                                contentColor = Color.White
+                            )
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Refresh,
@@ -675,6 +729,7 @@ fun CommentsPanel(
                     }
                 } else {
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -689,17 +744,45 @@ fun CommentsPanel(
                                 }
                             )
                         }
+
+                        if (isLoadingMore) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(20.dp),
+                                            strokeWidth = 2.dp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "Loading more comments...",
+                                            fontSize = 12.sp,
+                                            color = YT_SECONDARY_TEXT
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
 
-            HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
+            HorizontalDivider(color = AMOLED_BORDER, thickness = 0.5.dp)
 
-            // Sticky Bottom Comment Input Bar with Emoji Row
+            // Sticky Bottom Comment Input Bar with Emoji Row (Pure AMOLED Black)
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF181818))
+                    .background(AMOLED_BLACK)
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 // Quick emoji row
@@ -727,7 +810,7 @@ fun CommentsPanel(
                         modifier = Modifier
                             .size(32.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF333333)),
+                            .background(AMOLED_CARD),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -749,8 +832,8 @@ fun CommentsPanel(
                         singleLine = false,
                         maxLines = 4,
                         colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color(0xFF222222),
-                            unfocusedContainerColor = Color(0xFF222222),
+                            focusedContainerColor = AMOLED_CARD,
+                            unfocusedContainerColor = AMOLED_CARD,
                             focusedIndicatorColor = Color.Transparent,
                             unfocusedIndicatorColor = Color.Transparent,
                             focusedTextColor = Color.White,

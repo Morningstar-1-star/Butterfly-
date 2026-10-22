@@ -71,7 +71,7 @@ fun VideoDetailsSection(
     onServersClick: (() -> Unit)? = null,
     onTitleDrag: ((deltaY: Float) -> Unit)? = null,
     onTitleDragEnd: ((totalDy: Float) -> Unit)? = null,
-    commentsCount: Int = 0,
+    commentsCount: Long = 0L,
     topCommentSnippet: String? = null,
     topCommentAvatarUrl: String? = null,
     topCommentAuthor: String? = null,
@@ -547,9 +547,14 @@ fun VideoDetailsSection(
         Spacer(modifier = Modifier.height(10.dp))
 
         // 6. COMMENTS PREVIEW CARD (Screenshot 1, 4, 5)
+        val cleanTopSnippet = remember(topCommentSnippet) {
+            com.example.util.CommentTextCleaner.cleanCommentText(topCommentSnippet)
+        }
+
         Surface(
             shape = RoundedCornerShape(12.dp),
-            color = Color(0xFF212121),
+            color = Color(0xFF141414),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF222222)),
             modifier = Modifier
                 .fillMaxWidth()
                 .clickable { onCommentsClick() }
@@ -560,8 +565,8 @@ fun VideoDetailsSection(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     val countStr = when {
-                        commentsCount >= 1_000_000 -> " • ${String.format("%.1fM", commentsCount / 1_000_000.0)}"
-                        commentsCount >= 1000 -> " • ${String.format("%.1fK", commentsCount / 1000.0)}"
+                        commentsCount >= 1_000_000 -> " • ${String.format(java.util.Locale.US, "%.1fM", commentsCount / 1_000_000.0)}"
+                        commentsCount >= 1000 -> " • ${String.format(java.util.Locale.US, "%.1fK", commentsCount / 1000.0)}"
                         commentsCount > 0 -> " • $commentsCount"
                         else -> ""
                     }
@@ -590,7 +595,7 @@ fun VideoDetailsSection(
                         modifier = Modifier
                             .size(24.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF333333)),
+                            .background(Color(0xFF262626)),
                         contentAlignment = Alignment.Center
                     ) {
                         if (!topCommentAvatarUrl.isNullOrBlank()) {
@@ -613,9 +618,9 @@ fun VideoDetailsSection(
                     Spacer(modifier = Modifier.width(10.dp))
 
                     Text(
-                        text = topCommentSnippet?.takeIf { it.isNotBlank() } ?: "Add a comment...",
+                        text = cleanTopSnippet.takeIf { it.isNotBlank() } ?: "Add a comment...",
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                        color = if (topCommentSnippet.isNullOrBlank()) Color(0xFFAAAAAA) else Color.White,
+                        color = if (cleanTopSnippet.isBlank()) Color(0xFFAAAAAA) else Color.White,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)

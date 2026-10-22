@@ -35,7 +35,7 @@ class DecryptorProviderRepository(private val context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     private val _isMasterEnabled = MutableStateFlow(
-        prefs.getBoolean(KEY_MASTER_ENABLED, true)
+        prefs.getBoolean(KEY_MASTER_ENABLED, false)
     )
     val isMasterEnabled: StateFlow<Boolean> = _isMasterEnabled.asStateFlow()
 
@@ -58,7 +58,7 @@ class DecryptorProviderRepository(private val context: Context) {
         private const val PREFS_NAME = "decryptor_provider_prefs"
         private const val KEY_MASTER_ENABLED = "decryptor_master_enabled"
         private const val KEY_INSTALLED = "decryptor_installed_providers"
-        private const val KEY_INITIALIZED = "decryptor_initialized_v2"
+        private const val KEY_INITIALIZED = "decryptor_clean_start_v4"
 
         val ALL_AVAILABLE: List<DecryptorProviderInfo> = listOf(
             DecryptorProviderInfo("vidhide", "Vidhide Multi-Quality", "Direct adaptive HLS master stream", true, "https://vidhide.com"),
@@ -98,16 +98,13 @@ class DecryptorProviderRepository(private val context: Context) {
     private fun loadInstalledProviders() {
         val initialized = prefs.getBoolean(KEY_INITIALIZED, false)
         if (!initialized) {
-            val defaultList = ALL_AVAILABLE.map {
-                InstalledDecryptorProvider(
-                    id = it.id,
-                    name = it.name,
-                    isEnabled = true
-                )
-            }
-            saveProviders(defaultList)
-            prefs.edit().putBoolean(KEY_INITIALIZED, true).apply()
-            _installedProviders.value = defaultList
+            _installedProviders.value = emptyList()
+            _isMasterEnabled.value = false
+            prefs.edit()
+                .putString(KEY_INSTALLED, "[]")
+                .putBoolean(KEY_MASTER_ENABLED, false)
+                .putBoolean(KEY_INITIALIZED, true)
+                .apply()
             return
         }
 

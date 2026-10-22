@@ -239,7 +239,7 @@ class PlayerCore(
 
     fun resetPlayback() {
         try {
-            player?.stop()
+            player?.pause()
             player?.clearMediaItems()
         } catch (e: Exception) {
             Log.w(TAG, "Error resetting ExoPlayer playback: ${e.message}")

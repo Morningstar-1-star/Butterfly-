@@ -240,15 +240,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         "xhamster", "beeg", "4tube", "rule34video", "youporn"
     )
     private val normalIdsList = listOf(
-        "youtube", "tencent", "dailymotion", "bilibili", "archive",
-        "twitch", "bigo", "vimeo", "archive_org",
-        "curiositystream", "googledrive", "imdb", "mxplayer", "popcorntv", "tubitv",
-        "decryptor", "tmdb_embed", "vidsrc", "nuvio", "torrent", "prowlarr_v11", "torrentio", "1337x", "yts", "torrentgalaxy"
+        "youtube", "tencent", "dailymotion", "bilibili", "archive", "archive_org", "torrent"
     )
-    val defaultDisabledProviderIds = setOf(
-        "twitch", "bigo", "googledrive", "imdb"
-    )
-    val defaultEnabledNormalIdsList = normalIdsList.filterNot { it in defaultDisabledProviderIds }
+    val defaultDisabledProviderIds = emptySet<String>()
+    val defaultEnabledNormalIdsList = normalIdsList
 
     fun setAdultContentEnabled(enabled: Boolean) {
         _adultContentEnabled.value = enabled
@@ -602,6 +597,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isCommentsLoading = MutableStateFlow(false)
     val isCommentsLoading: StateFlow<Boolean> = _isCommentsLoading.asStateFlow()
 
+    private val _totalCommentsCount = MutableStateFlow<Long?>(null)
+    val totalCommentsCount: StateFlow<Long?> = _totalCommentsCount.asStateFlow()
+
+    private val _commentsContinuation = MutableStateFlow<String?>(null)
+    private val _isLoadingMoreComments = MutableStateFlow(false)
+    val isLoadingMoreComments: StateFlow<Boolean> = _isLoadingMoreComments.asStateFlow()
+
     private val _videoReactions = MutableStateFlow<List<VideoItem>>(emptyList())
     val videoReactions: StateFlow<List<VideoItem>> = _videoReactions.asStateFlow()
 
@@ -658,19 +660,49 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var commentsJob: Job? = null
     fun loadVideoComments(videoId: String, providerId: String? = null, videoTitle: String? = null) {
         commentsJob?.cancel()
+        _totalCommentsCount.value = null
+        _commentsContinuation.value = null
         commentsJob = viewModelScope.launch(Dispatchers.IO) {
             _isCommentsLoading.value = true
             try {
-                val fetched = com.example.util.CommentExtractorHelper.fetchComments(
+                val result = com.example.util.CommentExtractorHelper.fetchCommentsResult(
                     videoId = videoId,
                     providerId = providerId,
                     videoTitle = videoTitle
                 )
-                _videoComments.value = fetched
+                _videoComments.value = result.comments
+                _totalCommentsCount.value = result.totalCommentsCount
+                _commentsContinuation.value = result.continuationToken
             } catch (e: Exception) {
                 Log.w("MainViewModel", "loadVideoComments error: ${e.message}")
             } finally {
                 _isCommentsLoading.value = false
+            }
+        }
+    }
+
+    fun loadMoreComments(videoId: String, providerId: String? = null) {
+        val continuation = _commentsContinuation.value
+        if (continuation.isNullOrBlank() || _isLoadingMoreComments.value) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            _isLoadingMoreComments.value = true
+            try {
+                val nextResult = com.example.util.CommentExtractorHelper.fetchMoreYouTubeComments(videoId, continuation)
+                if (nextResult.comments.isNotEmpty()) {
+                    val combined = (_videoComments.value + nextResult.comments).distinctBy { it.id }
+                    _videoComments.value = combined
+                    if (nextResult.totalCommentsCount != null && nextResult.totalCommentsCount > 0) {
+                        _totalCommentsCount.value = nextResult.totalCommentsCount
+                    }
+                    _commentsContinuation.value = nextResult.continuationToken
+                } else {
+                    _commentsContinuation.value = null
+                }
+            } catch (e: Exception) {
+                Log.w("MainViewModel", "loadMoreComments error: ${e.message}")
+            } finally {
+                _isLoadingMoreComments.value = false
             }
         }
     }
@@ -833,9 +865,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _enabledProviderIds = MutableStateFlow<Set<String>>({
         // Cold app launch always defaults to normal non-adult sources
         settingsPrefs.edit().putBoolean("adult_content_enabled", false).apply()
-        val baseSet = (setOf("all", "youtube", "tencent", "dailymotion", "bilibili", "archive") + defaultEnabledNormalIdsList).toMutableSet()
-        val saved = settingsPrefs.getStringSet("enabled_provider_ids", null)
-        val savedNormal = settingsPrefs.getStringSet("normal_enabled_provider_ids", null)
+        val removedIds = setOf(
+            "vimeo", "twitch", "bigo", "hotstar", "crunchyroll", "sonyliv",
+            "amazonminitv", "discoveryplus", "disney", "hbo", "curiositystream",
+            "googledrive", "imdb", "mxplayer", "popcorntv", "tubitv", "tubi",
+            "decryptor", "tmdb_embed", "vidsrc", "nuvio",
+            "bun-tel-meg", "bunkr", "telegram", "mega"
+        )
+        val baseSet = (setOf("all", "youtube", "tencent", "dailymotion", "bilibili", "archive", "archive_org", "torrent") + defaultEnabledNormalIdsList).toMutableSet()
+        if (!settingsPrefs.getBoolean("clean_sources_v4", false)) {
+            settingsPrefs.edit()
+                .putStringSet("enabled_provider_ids", baseSet)
+                .putStringSet("normal_enabled_provider_ids", baseSet)
+                .putBoolean("clean_sources_v4", true)
+                .apply()
+        }
+        val saved = settingsPrefs.getStringSet("enabled_provider_ids", null)?.filterNot { it in removedIds }?.toSet()
+        val savedNormal = settingsPrefs.getStringSet("normal_enabled_provider_ids", null)?.filterNot { it in removedIds }?.toSet()
 
         val resolved = if (!savedNormal.isNullOrEmpty() && savedNormal.filter { it != "all" && !isAdultProviderId(it) }.isNotEmpty()) {
             val s = savedNormal.filter { !isAdultProviderId(it) }.toMutableSet()
@@ -1500,15 +1546,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setSearchExpanded(expanded: Boolean) {
         _isSearchExpanded.value = expanded
         if (!expanded) {
+            searchJob?.cancel()
+            suggestionJob?.cancel()
+            _isSearching.value = false
             _searchQuery.value = ""
             _searchResults.value = emptyList()
+            _searchSuggestions.value = emptyList()
+            _directUrlMatchItem.value = null
             _activeSearchSanitizedResult.value = null
         }
     }
 
     fun clearSearch() {
+        searchJob?.cancel()
+        suggestionJob?.cancel()
+        _isSearching.value = false
         _searchQuery.value = ""
         _searchResults.value = emptyList()
+        _searchSuggestions.value = emptyList()
+        _directUrlMatchItem.value = null
         _isSearchExpanded.value = false
         _activeSearchSanitizedResult.value = null
     }
@@ -3526,12 +3582,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 )
             }
         } else {
-            // Mainstream / Normal provider sources
+            // Mainstream / Normal provider sources (Clean, working providers only)
             uiList.add(
                 ProviderUiItem(
                     id = "all",
                     name = "All Sources",
-                    description = "Aggregated feed combining all enabled content providers",
+                    description = "Unified feed across all enabled video sources",
                     category = "Aggregator",
                     isEnabled = enabledSet.contains("all"),
                     isDefault = (activeId == "all")
@@ -3539,19 +3595,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
             uiList.add(
                 ProviderUiItem(
-                    id = "tencent",
-                    name = "Tencent Video (v.qq.com)",
-                    description = "Tencent Video (v.qq.com) Chinese dramas, anime, movies & series",
-                    category = "Video/Cinema",
-                    isEnabled = enabledSet.contains("tencent"),
-                    isDefault = (activeId == "tencent")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
                     id = "youtube",
                     name = "YouTube",
-                    description = "YouTube fast stream resolution, video search & channel metadata",
+                    description = "Fast HD video streams, channels & global catalog",
                     category = "Video",
                     isEnabled = enabledSet.contains("youtube"),
                     isDefault = (activeId == "youtube")
@@ -3559,49 +3605,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
             uiList.add(
                 ProviderUiItem(
-                    id = "dailymotion",
-                    name = "Dailymotion",
-                    description = "Dailymotion playlists, user channels & global search",
-                    category = "Video",
-                    isEnabled = enabledSet.contains("dailymotion"),
-                    isDefault = (activeId == "dailymotion")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
-                    id = "twitch",
-                    name = "Twitch",
-                    description = "Twitch Live Streams, Top Gaming Highlights & VODs",
-                    category = "Live/Video",
-                    isEnabled = enabledSet.contains("twitch"),
-                    isDefault = (activeId == "twitch")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
-                    id = "bigo",
-                    name = "Bigo Live",
-                    description = "Bigo Live streams, global broadcasters, video moments & live rooms",
-                    category = "Live/Video",
-                    isEnabled = enabledSet.contains("bigo"),
-                    isDefault = (activeId == "bigo")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
-                    id = "archive_org",
-                    name = "Archive.org",
-                    description = "Internet Archive video catalog",
-                    category = "Library",
-                    isEnabled = enabledSet.contains("archive_org"),
-                    isDefault = (activeId == "archive_org")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
                     id = "bilibili",
                     name = "Bilibili",
-                    description = "Bilibili streaming catalog",
+                    description = "Anime, ACG, gaming & HD creator streams",
                     category = "Video",
                     isEnabled = enabledSet.contains("bilibili"),
                     isDefault = (activeId == "bilibili")
@@ -3609,113 +3615,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             )
             uiList.add(
                 ProviderUiItem(
-                    id = "vimeo",
-                    name = "Vimeo",
-                    description = "Vimeo video catalog",
+                    id = "tencent",
+                    name = "Tencent Video",
+                    description = "Dramas, donghua, movies & series (v.qq.com)",
+                    category = "Video/Cinema",
+                    isEnabled = enabledSet.contains("tencent"),
+                    isDefault = (activeId == "tencent")
+                )
+            )
+            uiList.add(
+                ProviderUiItem(
+                    id = "dailymotion",
+                    name = "Dailymotion",
+                    description = "Global videos, music, news & creator channels",
                     category = "Video",
-                    isEnabled = enabledSet.contains("vimeo"),
-                    isDefault = (activeId == "vimeo")
+                    isEnabled = enabledSet.contains("dailymotion"),
+                    isDefault = (activeId == "dailymotion")
+                )
+            )
+            uiList.add(
+                ProviderUiItem(
+                    id = "archive_org",
+                    name = "Archive.org",
+                    description = "Classic cinema, public domain films & open video library",
+                    category = "Library",
+                    isEnabled = enabledSet.contains("archive_org"),
+                    isDefault = (activeId == "archive_org")
                 )
             )
             uiList.add(
                 ProviderUiItem(
                     id = "torrent",
-                    name = "Torrent (P2P)",
-                    description = "Stream Movies, TV Series & Anime via Butterfly MediaServer",
+                    name = "Cinema & Anime (P2P)",
+                    description = "Movies, TV Series & Anime via Butterfly MediaServer",
                     category = "Torrent",
                     providerType = com.example.model.ProviderType.TORRENT,
                     isEnabled = enabledSet.contains("torrent"),
                     isDefault = (activeId == "torrent")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
-                    id = "curiositystream",
-                    name = "CuriosityStream",
-                    description = "Science, History, Nature, Technology & Space Documentaries",
-                    category = "Documentaries",
-                    isEnabled = enabledSet.contains("curiositystream"),
-                    isDefault = (activeId == "curiositystream")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
-                    id = "googledrive",
-                    name = "Google Drive",
-                    description = "Stream public & synced Google Drive movies and shared video folders",
-                    category = "Cloud & Personal",
-                    isEnabled = enabledSet.contains("googledrive"),
-                    isDefault = (activeId == "googledrive")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
-                    id = "imdb",
-                    name = "IMDb (Top Movies & Trailers)",
-                    description = "IMDb Top 250 releases, movie charts & HD trailers",
-                    category = "Cinema",
-                    isEnabled = enabledSet.contains("imdb"),
-                    isDefault = (activeId == "imdb")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
-                    id = "mxplayer",
-                    name = "MX Player",
-                    description = "MX Player OTT web series, short films & movies",
-                    category = "Video",
-                    isEnabled = enabledSet.contains("mxplayer"),
-                    isDefault = (activeId == "mxplayer")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
-                    id = "popcorntv",
-                    name = "PopcornTV",
-                    description = "PopcornTV blockbusters, open movies & 4K cinema releases",
-                    category = "Cinema",
-                    isEnabled = enabledSet.contains("popcorntv"),
-                    isDefault = (activeId == "popcorntv")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
-                    id = "tubitv",
-                    name = "Tubi TV",
-                    description = "Tubi TV 50,000+ free movies, TV series & cult cinema with US geo bypass",
-                    category = "Cinema",
-                    isEnabled = enabledSet.contains("tubitv"),
-                    isDefault = (activeId == "tubitv")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
-                    id = "decryptor",
-                    name = "Decryptor (Multi-Server HLS)",
-                    description = "Nxsha multi-server HLS engine: Vidhide, Turbo & Fast CDNs",
-                    category = "Cinema",
-                    isEnabled = enabledSet.contains("decryptor"),
-                    isDefault = (activeId == "decryptor")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
-                    id = "tmdb_embed",
-                    name = "TMDB Embed (13 Sources)",
-                    description = "VixSrc, NetMirror, Videasy, Vidlink, CastleTV, 4KHDHub & more with HLS/Subtitles",
-                    category = "Cinema",
-                    isEnabled = enabledSet.contains("tmdb_embed"),
-                    isDefault = (activeId == "tmdb_embed")
-                )
-            )
-            uiList.add(
-                ProviderUiItem(
-                    id = "vidsrc",
-                    name = "VidSrc (Cloud Stream)",
-                    description = "VidSrc high-speed cloud streams, auto-mirrors & HD movies",
-                    category = "Cinema",
-                    isEnabled = enabledSet.contains("vidsrc"),
-                    isDefault = (activeId == "vidsrc")
                 )
             )
 
@@ -4266,10 +4202,94 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private val searchFastCache = java.util.concurrent.ConcurrentHashMap<String, List<VideoItem>>()
+    private var searchJob: kotlinx.coroutines.Job? = null
+
+    fun loadHomeCategoryTopic(category: String) {
+        val cleanTag = category.trim()
+        if (cleanTag.isBlank() || cleanTag.equals("All", ignoreCase = true)) {
+            loadTrending(forceRefresh = true)
+            return
+        }
+        feedLoadingJob?.cancel()
+        _isLoadingTrending.value = true
+        _feedError.value = null
+        feedLoadingJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val activeProv = _activeProviderId.value.lowercase()
+                val adultEnabled = _adultContentEnabled.value || isAdultProviderId(activeProv)
+                val enabledSet = _enabledProviderIds.value
+                val collected = java.util.Collections.synchronizedList(mutableListOf<VideoItem>())
+
+                supervisorScope {
+                    if (adultEnabled) {
+                        val targetAdult = if (activeProv == "all") {
+                            listOf("supjav", "sextb", "123av", "xnxx", "eporner", "spankbang", "pornhub")
+                        } else {
+                            listOf(activeProv)
+                        }
+                        targetAdult.forEach { p ->
+                            launch(Dispatchers.IO) {
+                                val res = kotlinx.coroutines.withTimeoutOrNull(7000L) {
+                                    com.example.extractor.MultiSourceProvider.search(getApplication(), p, cleanTag, 20, 1)
+                                } ?: emptyList()
+                                if (res.isNotEmpty()) synchronized(collected) { collected.addAll(res) }
+                            }
+                        }
+                    } else {
+                        if ((activeProv == "all" || activeProv == "youtube") && enabledSet.contains("youtube")) {
+                            launch(Dispatchers.IO) {
+                                val res = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                                    com.example.extractor.YouTubeExtractorHelper.searchYouTube(cleanTag, getApplication())
+                                } ?: emptyList()
+                                if (res.isNotEmpty()) synchronized(collected) { collected.addAll(res) }
+                            }
+                        }
+                        if ((activeProv == "all" || activeProv == "bilibili") && enabledSet.contains("bilibili")) {
+                            launch(Dispatchers.IO) {
+                                val res = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                                    com.example.extractor.BilibiliProvider.searchBilibili(cleanTag, 1, 20)
+                                } ?: emptyList()
+                                if (res.isNotEmpty()) synchronized(collected) { collected.addAll(res) }
+                            }
+                        }
+                        if ((activeProv == "all" || activeProv == "tencent") && enabledSet.contains("tencent")) {
+                            launch(Dispatchers.IO) {
+                                val res = kotlinx.coroutines.withTimeoutOrNull(6000L) {
+                                    com.example.extractor.TencentProvider.search(cleanTag, 20)
+                                } ?: emptyList()
+                                if (res.isNotEmpty()) synchronized(collected) { collected.addAll(res) }
+                            }
+                        }
+                        if ((activeProv == "all" || activeProv == "dailymotion") && enabledSet.contains("dailymotion")) {
+                            launch(Dispatchers.IO) {
+                                val res = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                                    com.example.extractor.DailymotionProvider.search(cleanTag, 15)
+                                } ?: emptyList()
+                                if (res.isNotEmpty()) synchronized(collected) { collected.addAll(res) }
+                            }
+                        }
+                    }
+                }
+                val items = synchronized(collected) { collected.toList() }
+                    .distinctBy { (it.providerId ?: "") + "_" + it.id }
+                if (items.isNotEmpty()) {
+                    _trendingVideos.value = com.example.util.UniversalTranslator.translateVideoItemList(items)
+                }
+            } catch (e: Exception) {
+                Log.w("MainViewModel", "loadHomeCategoryTopic error: ${e.message}")
+            } finally {
+                _isLoadingTrending.value = false
+                _isFeedRefreshing.value = false
+            }
+        }
+    }
 
     fun performSearch(query: String? = null) {
         val rawInput = (query ?: _searchQuery.value).trim()
         if (rawInput.isBlank()) return
+        if (query != null && _searchQuery.value != rawInput) {
+            _searchQuery.value = rawInput
+        }
 
         val tagAnalysis = com.example.util.CategoryTagDetector.analyzeQuery(rawInput)
         _detectedCategoryTags.value = tagAnalysis.detectedTags
@@ -4284,13 +4304,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             addRecentSearch(searchTarget)
         }
 
+        searchJob?.cancel()
         _isSearching.value = true
         _searchResults.value = emptyList()
         _directUrlMatchItem.value = null
 
         currentSearchPage = 1
 
-        viewModelScope.launch(Dispatchers.IO) {
+        searchJob = viewModelScope.launch(Dispatchers.IO) {
             _feedError.value = null
             try {
                 // If query is a URL, resolve direct link video metadata directly and return immediately without searching other videos
@@ -4369,28 +4390,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val collectedList = java.util.Collections.synchronizedList(mutableListOf<VideoItem>())
 
                 val updateUiResults: suspend () -> Unit = {
-                    val snapshot = synchronized(collectedList) { collectedList.toList() }
-                    val distinct = snapshot.distinctBy { (it.providerId ?: "") + "_" + it.id }
-                    val filtered = distinct.filter {
-                        if (activeProv != "all") {
-                            com.example.util.SourceTagHelper.matchesProvider(it.providerId, activeProv)
-                        } else {
-                            if (adultEnabled) {
-                                (isAdultVideoItem(it) || isAdultProviderId(it.providerId)) && !isNormalProvider(it.providerId)
+                    if (kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]?.isActive != false && _searchQuery.value.isNotBlank()) {
+                        val snapshot = synchronized(collectedList) { collectedList.toList() }
+                        val distinct = snapshot.distinctBy { (it.providerId ?: "") + "_" + it.id }
+                        val filtered = distinct.filter {
+                            if (activeProv != "all") {
+                                com.example.util.SourceTagHelper.matchesProvider(it.providerId, activeProv)
                             } else {
-                                !isAdultVideoItem(it) && !isAdultProviderId(it.providerId)
+                                if (adultEnabled) {
+                                    (isAdultVideoItem(it) || isAdultProviderId(it.providerId)) && !isNormalProvider(it.providerId)
+                                } else {
+                                    !isAdultVideoItem(it) && !isAdultProviderId(it.providerId)
+                                }
                             }
                         }
+                        val liveTaste = getLiveTasteVector(filtered)
+                        val ranked = com.example.util.SearchRelevanceScorer.rankSearchResults(
+                            items = filtered,
+                            query = searchTarget,
+                            correctedQuery = correctedTarget ?: sanitized.cleanQuery,
+                            userTasteVector = liveTaste
+                        )
+                        val translatedResults = com.example.util.UniversalTranslator.translateVideoItemList(ranked)
+                        if (_searchQuery.value.isNotBlank()) {
+                            _searchResults.value = translatedResults
+                        }
                     }
-                    val liveTaste = getLiveTasteVector(filtered)
-                    val ranked = com.example.util.SearchRelevanceScorer.rankSearchResults(
-                        items = filtered,
-                        query = searchTarget,
-                        correctedQuery = correctedTarget ?: sanitized.cleanQuery,
-                        userTasteVector = liveTaste
-                    )
-                    val translatedResults = com.example.util.UniversalTranslator.translateVideoItemList(ranked)
-                    _searchResults.value = translatedResults
                 }
 
                 supervisorScope {
@@ -4644,8 +4669,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             }
                         }
 
-                        // 4. TMDB Embed (Movies & Series)
-                        if (enabledSet.contains("tmdb_embed") || enabledSet.contains("tmdb") || activeProv == "all") {
+                        // 4. TMDB Embed (Only if user installed and enabled it)
+                        val tmdbActive = tmdbRepository.isMasterEnabled.value && tmdbRepository.installedProviders.value.any { it.isEnabled }
+                        if (tmdbActive && (enabledSet.contains("tmdb_embed") || enabledSet.contains("tmdb") || activeProv == "all")) {
                             launch(Dispatchers.IO) {
                                 try {
                                     val tmdbResults = kotlinx.coroutines.withTimeoutOrNull(5000L) {
@@ -4653,21 +4679,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     } ?: emptyList()
                                     if (tmdbResults.isNotEmpty()) {
                                         synchronized(collectedList) { collectedList.addAll(tmdbResults) }
-                                        updateUiResults()
-                                    }
-                                } catch (_: Exception) {}
-                            }
-                        }
-
-                        // 5. Tubi TV
-                        if (enabledSet.contains("tubitv") || enabledSet.contains("tubi") || activeProv == "all") {
-                            launch(Dispatchers.IO) {
-                                try {
-                                    val tubiResults = kotlinx.coroutines.withTimeoutOrNull(5000L) {
-                                        com.example.extractor.TubiTvProvider.search(searchTarget, 20)
-                                    } ?: emptyList()
-                                    if (tubiResults.isNotEmpty()) {
-                                        synchronized(collectedList) { collectedList.addAll(tubiResults) }
                                         updateUiResults()
                                     }
                                 } catch (_: Exception) {}
@@ -5004,14 +5015,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
 
-                    // 5. Vimeo (Mainstream only)
-                    if (!adultEnabled && (activeProv == "all" || activeProv == "vimeo") && enabledSet.contains("vimeo")) {
+                    // 5. Tencent Video (Mainstream only)
+                    if (!adultEnabled && (activeProv == "all" || activeProv == "tencent") && enabledSet.contains("tencent")) {
                         launch(Dispatchers.IO) {
-                            val vimItems = fetchSafely("vimeo", 3500L) {
-                                com.example.extractor.MultiSourceProvider.getHome(getApplication(), "vimeo", provLimit, targetPage)
+                            val tencentItems = fetchSafely("tencent", 4000L) {
+                                com.example.extractor.MultiSourceProvider.getHome(getApplication(), "tencent", provLimit, targetPage)
                             }
-                            if (vimItems.isNotEmpty()) {
-                                updateFeedProgressively(vimItems)
+                            if (tencentItems.isNotEmpty()) {
+                                updateFeedProgressively(tencentItems)
                             }
                         }
                     }
@@ -5085,15 +5096,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                 } else {
-                    if (activeProv == "all") {
-                        listOf("tencent", "twitch", "bigo")
-                    } else {
-                        listOf(
-                            "tencent", "twitch", "bigo",
-                            "curiositystream", "googledrive", "imdb", "mxplayer", "popcorntv", "tubitv",
-                            "decryptor", "tmdb_embed", "vidsrc"
-                        )
-                    }
+                    listOf("tencent", "dailymotion", "bilibili")
                 }
                 val targetFastSources = when {
                     activeProv == "all" -> fastMultiSources.filter { enabledSet.contains(it) && (if (adultEnabled) isAdultProviderId(it) && !isNormalProvider(it) else !isAdultProviderId(it)) }
@@ -5238,9 +5241,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix",
                             "spankbang", "playvid", "txxx"
                         ) else listOf(
-                            "tencent", "dailymotion", "twitch", "bigo", "bilibili", "vimeo",
-                            "googledrive", "imdb", "mxplayer", "popcorntv", "tubitv",
-                            "decryptor", "tmdb_embed", "vidsrc", "nuvio"
+                            "tencent", "dailymotion", "bilibili"
                         )
                         multiProvs.filter { enabledSet.contains(it) }.forEach { p ->
                             try {
@@ -5296,9 +5297,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix",
                             "playvid", "txxx"
                         ) else listOf(
-                            "tencent", "dailymotion", "twitch", "bigo", "bilibili", "vimeo",
-                            "googledrive", "imdb", "mxplayer", "popcorntv", "tubitv",
-                            "decryptor", "tmdb_embed", "vidsrc", "nuvio"
+                            "tencent", "dailymotion", "bilibili"
                         )
                         multiProvs.filter { enabledSet.contains(it) }.forEach { p ->
                             try {

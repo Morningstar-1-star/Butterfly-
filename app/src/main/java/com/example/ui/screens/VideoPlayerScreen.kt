@@ -169,6 +169,8 @@ fun VideoPlayerScreen(
     val showThumbnailTags by viewModel.showThumbnailTags.collectAsState()
     val videoComments by viewModel.videoComments.collectAsState()
     val isCommentsLoading by viewModel.isCommentsLoading.collectAsState()
+    val totalCommentsCount by viewModel.totalCommentsCount.collectAsState()
+    val isLoadingMoreComments by viewModel.isLoadingMoreComments.collectAsState()
     val videoReactions by viewModel.videoReactions.collectAsState()
     val isReactionsLoading by viewModel.isReactionsLoading.collectAsState()
     val tvSeasons by viewModel.tvSeasons.collectAsState()
@@ -654,6 +656,117 @@ fun VideoPlayerScreen(
         }
     }
 
+    val playerMovableContent = remember(
+        selectedOption,
+        currentStreamData,
+        selectedCaption,
+        currentVideoItem,
+        providerId,
+        isPlaying,
+        activeVideoId,
+        initialPositionMs,
+        failedSourceLogs,
+        isPortraitExpanded,
+        expandProgress,
+        nextEpisodeData
+    ) {
+        movableContentOf { modifier: Modifier, isLandscapeMode: Boolean ->
+            UniversalVideoPlayer(
+                streamOption = selectedOption,
+                hlsUrl = currentStreamData?.hlsUrl ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.hlsUrl,
+                captionOption = selectedCaption,
+                streamData = currentStreamData ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData,
+                previewItem = currentVideoItem,
+                chapters = currentStreamData?.chapters ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.chapters ?: emptyList(),
+                providerId = providerId,
+                isPlaying = isPlaying,
+                videoId = activeVideoId,
+                initialPositionMs = initialPositionMs,
+                availableStreamOptions = currentStreamData?.availableStreamOptions ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.availableStreamOptions ?: emptyList(),
+                onSelectStreamOption = { option -> viewModel.selectStreamOption(option) },
+                failedSourceLogs = failedSourceLogs,
+                onProgressUpdate = { pos, dur ->
+                    activeVideoId?.let { id -> viewModel.recordWatchProgress(id, pos, dur) }
+                },
+                onBackClick = {
+                    if (!isLandscapeMode && (isPortraitExpanded || expandProgress > 0.05f)) {
+                        collapsePortraitAction()
+                    } else {
+                        minimizePlayerAction()
+                    }
+                },
+                nextEpisodeData = nextEpisodeData,
+                onPlayNextEpisode = playNextEpisodeAction,
+                onNextClick = {
+                    navigateToNextVideo()
+                },
+                onPreviousClick = {
+                    navigateToPreviousVideo()
+                },
+                onOpenRelatedVideos = {
+                    showLandscapeRelatedDrawer = true
+                },
+                isPortraitExpanded = if (!isLandscapeMode) (isPortraitExpanded || expandProgress > 0.05f) else false,
+                onTogglePortraitExpanded = {
+                    coroutineScope.launch {
+                        if (isPortraitExpanded || expandProgress > 0.5f) {
+                            isPortraitExpanded = false
+                            portraitExpandProgress.animateTo(0f, spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow))
+                        } else {
+                            isPortraitExpanded = true
+                            portraitExpandProgress.animateTo(1f, spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow))
+                        }
+                    }
+                },
+                onPortraitCollapseDrag = { deltaY ->
+                    coroutineScope.launch {
+                        val deltaFraction = deltaY / maxExpandPx
+                        portraitExpandProgress.snapTo(
+                            (portraitExpandProgress.value + deltaFraction).coerceIn(0f, 1f)
+                        )
+                    }
+                },
+                onPortraitCollapseEnd = { accumulatedDy ->
+                    coroutineScope.launch {
+                        val cur = portraitExpandProgress.value
+                        if (cur < 0.65f || accumulatedDy < -80f) {
+                            isPortraitExpanded = false
+                            portraitExpandProgress.animateTo(
+                                0f,
+                                spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)
+                            )
+                        } else {
+                            isPortraitExpanded = true
+                            portraitExpandProgress.animateTo(
+                                1f,
+                                spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMedium)
+                            )
+                        }
+                    }
+                },
+                onSwipeDownDrag = { deltaY ->
+                    if (!isLandscapeMode && !isPortraitExpanded && expandProgress < 0.05f) {
+                        coroutineScope.launch {
+                            dragOffsetY.snapTo((dragOffsetY.value + deltaY).coerceAtLeast(0f))
+                        }
+                    }
+                },
+                onSwipeDownEnd = { accumulatedDy ->
+                    if (!isLandscapeMode && !isPortraitExpanded && expandProgress < 0.05f) {
+                        coroutineScope.launch {
+                            if (dragOffsetY.value > minimizeThresholdPx || accumulatedDy > 40f) {
+                                minimizePlayerAction()
+                            } else {
+                                dragOffsetY.animateTo(0f, spring(dampingRatio = 0.80f, stiffness = Spring.StiffnessMediumLow))
+                            }
+                        }
+                    }
+                },
+                modifier = modifier
+            )
+        }
+    }
+
     if (isLandscape) {
         Box(
             modifier = Modifier
@@ -680,36 +793,7 @@ fun VideoPlayerScreen(
                 )
             }
             // All streams are played natively in UniversalVideoPlayer (no webview embeds)
-            UniversalVideoPlayer(
-                streamOption = selectedOption,
-                hlsUrl = currentStreamData?.hlsUrl ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.hlsUrl,
-                captionOption = selectedCaption,
-                streamData = currentStreamData ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData,
-                previewItem = currentVideoItem,
-                providerId = providerId,
-                isPlaying = isPlaying,
-                videoId = activeVideoId,
-                initialPositionMs = initialPositionMs,
-                availableStreamOptions = currentStreamData?.availableStreamOptions ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.availableStreamOptions ?: emptyList(),
-                onSelectStreamOption = { option -> viewModel.selectStreamOption(option) },
-                failedSourceLogs = failedSourceLogs,
-                onProgressUpdate = { pos, dur ->
-                    activeVideoId?.let { id -> viewModel.recordWatchProgress(id, pos, dur) }
-                },
-                onBackClick = onBackClick,
-                nextEpisodeData = nextEpisodeData,
-                onPlayNextEpisode = playNextEpisodeAction,
-                onNextClick = {
-                    navigateToNextVideo()
-                },
-                onPreviousClick = {
-                    navigateToPreviousVideo()
-                },
-                onOpenRelatedVideos = {
-                    showLandscapeRelatedDrawer = true
-                },
-                modifier = Modifier.fillMaxSize()
-            )
+            playerMovableContent(Modifier.fillMaxSize(), true)
 
             // Landscape Related Videos Drawer
             LandscapeRelatedDrawer(
@@ -795,96 +879,8 @@ fun VideoPlayerScreen(
                                 )
                             }
                             // All streams are played natively in UniversalVideoPlayer (no webview embeds)
-                            UniversalVideoPlayer(
-                                streamOption = selectedOption,
-                                hlsUrl = currentStreamData?.hlsUrl ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.hlsUrl,
-                                captionOption = selectedCaption,
-                                streamData = currentStreamData ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData,
-                                previewItem = currentVideoItem,
-                                chapters = currentStreamData?.chapters ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.chapters ?: emptyList(),
-                                providerId = providerId,
-                                isPlaying = isPlaying,
-                                videoId = activeVideoId,
-                                initialPositionMs = initialPositionMs,
-                                availableStreamOptions = currentStreamData?.availableStreamOptions ?: (extractionResult as? YouTubeExtractorHelper.ExtractionResult.Success)?.streamData?.availableStreamOptions ?: emptyList(),
-                                onSelectStreamOption = { option -> viewModel.selectStreamOption(option) },
-                                failedSourceLogs = failedSourceLogs,
-                                onProgressUpdate = { pos, dur ->
-                                    activeVideoId?.let { id -> viewModel.recordWatchProgress(id, pos, dur) }
-                                },
-                                isPortraitExpanded = isPortraitExpanded || expandProgress > 0.05f,
-                                onTogglePortraitExpanded = {
-                                    coroutineScope.launch {
-                                        if (isPortraitExpanded || expandProgress > 0.5f) {
-                                            isPortraitExpanded = false
-                                            portraitExpandProgress.animateTo(0f, spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow))
-                                        } else {
-                                            isPortraitExpanded = true
-                                            portraitExpandProgress.animateTo(1f, spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow))
-                                        }
-                                    }
-                                },
-                                onPortraitCollapseDrag = { deltaY ->
-                                    coroutineScope.launch {
-                                        val deltaFraction = deltaY / maxExpandPx
-                                        portraitExpandProgress.snapTo(
-                                            (portraitExpandProgress.value + deltaFraction).coerceIn(0f, 1f)
-                                        )
-                                    }
-                                },
-                                onPortraitCollapseEnd = { accumulatedDy ->
-                                    coroutineScope.launch {
-                                        val cur = portraitExpandProgress.value
-                                        if (cur < 0.65f || accumulatedDy < -80f) {
-                                            isPortraitExpanded = false
-                                            portraitExpandProgress.animateTo(
-                                                0f,
-                                                spring(dampingRatio = 0.82f, stiffness = Spring.StiffnessMediumLow)
-                                            )
-                                        } else {
-                                            isPortraitExpanded = true
-                                            portraitExpandProgress.animateTo(
-                                                1f,
-                                                spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMedium)
-                                            )
-                                        }
-                                    }
-                                },
-                                onSwipeDownDrag = { deltaY ->
-                                    if (!isPortraitExpanded && expandProgress < 0.05f) {
-                                        coroutineScope.launch {
-                                            dragOffsetY.snapTo((dragOffsetY.value + deltaY).coerceAtLeast(0f))
-                                        }
-                                    }
-                                },
-                                onSwipeDownEnd = { accumulatedDy ->
-                                    if (!isPortraitExpanded && expandProgress < 0.05f) {
-                                        coroutineScope.launch {
-                                            if (dragOffsetY.value > minimizeThresholdPx || accumulatedDy > 40f) {
-                                                minimizePlayerAction()
-                                            } else {
-                                                dragOffsetY.animateTo(0f, spring(dampingRatio = 0.80f, stiffness = Spring.StiffnessMediumLow))
-                                            }
-                                        }
-                                    }
-                                },
-                                onBackClick = {
-                                    if (isPortraitExpanded || expandProgress > 0.05f) {
-                                        collapsePortraitAction()
-                                    } else {
-                                        minimizePlayerAction()
-                                    }
-                                },
-                            nextEpisodeData = nextEpisodeData,
-                            onPlayNextEpisode = playNextEpisodeAction,
-                            onNextClick = {
-                                navigateToNextVideo()
-                            },
-                            onPreviousClick = {
-                                navigateToPreviousVideo()
-                            }
-                        )
-                    }
+                            playerMovableContent(Modifier.fillMaxSize(), false)
+                        }
 
                     // SCROLLABLE CONTENT (DETAILS + RELATED VIDEOS) - SLIDES DOWN & VANISHES INSTANTLY UPON SWIPING DOWN OR EXPANDING!
                     if (expandProgress < 0.99f) {
@@ -1008,7 +1004,7 @@ fun VideoPlayerScreen(
                                 onDescriptionClick = {
                                     showDescriptionPanel = true
                                 },
-                                commentsCount = if (videoComments.isNotEmpty()) videoComments.size else 0,
+                                commentsCount = totalCommentsCount ?: videoComments.size.toLong(),
                                 topCommentSnippet = videoComments.firstOrNull()?.commentText,
                                 topCommentAvatarUrl = videoComments.firstOrNull()?.authorAvatarUrl,
                                 topCommentAuthor = videoComments.firstOrNull()?.authorName,
@@ -1569,7 +1565,9 @@ fun VideoPlayerScreen(
                 ) {
                     com.example.ui.components.CommentsPanel(
                         comments = videoComments,
+                        totalCommentsCount = totalCommentsCount,
                         isLoading = isCommentsLoading,
+                        isLoadingMore = isLoadingMoreComments,
                         onAddComment = { text ->
                             activeVideoId?.let { vid -> viewModel.addComment(text, vid) }
                         },
@@ -1588,6 +1586,12 @@ fun VideoPlayerScreen(
                                     providerId = pId,
                                     videoTitle = title
                                 )
+                            }
+                        },
+                        onLoadMore = {
+                            activeVideoId?.let { vid ->
+                                val pId = providerId ?: currentStreamData?.providerId ?: "youtube"
+                                viewModel.loadMoreComments(vid, pId)
                             }
                         },
                         onDismiss = { showCommentsBottomSheet = false }

@@ -1,129 +1,110 @@
-# Butterfly Lightweight & High-Performance Architecture Plan
+# High-Performance Butterfly Architecture: APK Shrinking, Butterfly-MediaServer & Sub-Second Playback
 
-Transform **Butterfly** from a heavy, 112+ MB multi-scraper bundle into a fast, ~45–55 MB 64-bit streaming client with 120fps scrolling, instant HD thumbnails, live `yt-dlp` OTA updates from GitHub, and centralized movie/series extraction through **Butterfly-MediaServer**.
+Transform **Butterfly** into a lean, ultra-fast streaming client (~45 MB Release APK) with sub-second video startup, real SupJav/JAV streams without demo placeholders, and complete **Butterfly-MediaServer** cloud resolution for Vega and Nuvio.
 
 ---
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> All core architectural, packaging, and performance decisions below have been confirmed from your selections and are ready for execution upon approval.
+> All core architectural choices below are aligned with your selections and ready for execution upon your approval.
 
-- **Confirmed Decision 1 — Feature & Dependency Pruning (~25–30 MB Raw / ~16 MB Compressed Saved)**:
-  - Remove **Google ML Kit Text Recognition (`play-services-mlkit-text-recognition`)** and the in-player Visual Lens OCR/Catbox cropper (`~14 MB` of native C++ OCR models).
-  - Remove **Dead Widevine DRM OTT Scrapers** (`Disney+`, `HBO`, `Hotstar`, `SonyLIV`, `Discovery+`, `Amazon miniTV`, `Crunchyroll`) that cannot play DRM streams locally and slow down multi-source search.
-  - Remove **CloudSocial (Telegram / Mega), Bunkr, and Catbox Upload Vault** screens, dialogs, databases, and dummy help cards.
-  - Remove **Cosmetic & Simulated Bloat**: Gamified Personality Badges, Avatar Customizer sheets, fake CinemaEco / VideoEnhancement shader overlays, and hardcoded `"Channel 1..5"` dummy circles in Subscriptions.
-- **Confirmed Decision 2 — Native ABI Splits & R8 Release Shrinking (~45–55 MB Saved per APK)**:
-  - Configure ABI splits (`arm64-v8a` for mobile devices, `x86_64` for emulators/PC) and ensure GitHub Actions builds a signed, R8-minified and resource-shrunk Release APK instead of bundling both architectures uncompressed into a single fat debug APK.
-- **Confirmed Decision 3 — Hybrid Extraction (`yt-dlp` In-App + `Butterfly-MediaServer` Cloud API)**:
-  - Keep **YouTube (`NewPipeExtractor` + `yt-dlp` fallback)**, **Bilibili**, and **in-app `yt-dlp`** untouched and self-contained inside the Android app, while fixing `YtDlpUpdateManager` so it genuinely applies upstream updates from `github.com/yt-dlp/yt-dlp`.
-  - Route movie, series, anime, and embed resolution (`Nuvio`, `VidSrc`, `TMDBEmbed`, `Decryptor`, and catalog providers) through **Butterfly-MediaServer** (`https://github.com/Morningstar-1-star/Butterfly-MediaServer`).
-- **Confirmed Decision 4 — 120fps Scrolling & Instant HD Thumbnails**:
-  - Eliminate full-screen recompositions on every 200ms player progress tick, remove per-frame `onGloballyPositioned` layout listeners on video cards, simplify screen transitions, and fix YouTube `hq720.jpg` 404 stalls with automatic `hqdefault.jpg` fallback and direct connection-pooled DNS.
-
----
-
-## 1. Overview & Core Concept
-
-- **What It Does**: Butterfly is a unified streaming client combining native high-speed playback for YouTube, Bilibili, and direct video tubes with cloud-powered Movie/Series/Anime aggregation via **Butterfly-MediaServer**.
-- **Target Audience / Persona**: Mobile users who want a responsive, lightweight media player that opens instantaneously, scrolls at native 120Hz without frame drops, loads crisp thumbnails immediately, and plays streams reliably on 64-bit Android phones.
-- **Key Value**:
-  - **~50–60% Smaller Mobile APK**: Drops from 112+ MB to ~45–52 MB on `arm64-v8a` phones without removing `yt-dlp`.
-  - **Self-Updating `yt-dlp` Engine**: Connects `YtDlpUpdateManager` directly to `PYTHONPATH` and upstream GitHub releases so new extractor fixes take effect without rebuilding the APK.
-  - **Zero-Jank UI & Instant Thumbnails**: Isolates player progress state from feed composition and eliminates HTTP 404 thumbnail stalls.
+- **Confirmed Decision 1 — True APK Size Reduction (~45 MB Release APK vs 108 MB Debug)**:
+  - **The Root Cause of 108 MB**: When GitHub Actions ran without upload keystore secrets, it fell back to `./gradlew :app:assembleDebug`, producing an uncompressed, unstripped Debug APK with two full architectures (`x86_64` + `arm64-v8a`) and zero R8 minification.
+  - **The Solution**: Configure GitHub Actions to always build a signed **Release APK** with R8 ProGuard code shrinking, resource shrinking (`isShrinkResources = true`), and ABI splitting. Generate a dedicated mobile `arm64-v8a` Release APK (~42–48 MB) alongside a universal or emulator build. Also eliminate redundant `yt-dlp-android-compat` dependencies if unneeded.
+- **Confirmed Decision 2 — Fix SupJav & Purge All Fake Demo Data**:
+  - **The Root Cause**: `JavVideoExtractor.kt` contained a fallback method `getCuratedJavCatalog()` with hardcoded Unsplash photos and dummy codes (`SSIS-999`, `IPX-888`, etc.) that triggered whenever SupJav mirrors hit Cloudflare anti-bot. These dummy cards had no playable streams, creating dead video playback.
+  - **The Solution**: Remove `getCuratedJavCatalog()` entirely. Update `SupJavResolver` with working live mirrors (`supjav.mom`, `supjav.biz`, `supjav.tv`), user-agent rotation, and direct multi-extractor fallback to live JAV engines (`123AV`, `JavTiful`, `MissAV`, and `Jable`) with real HLS/MP4 streams.
+- **Confirmed Decision 3 — Connect Vega & Nuvio to `Butterfly-MediaServer`**:
+  - Connect `VegaProviderClient` and `NuvioProvider` to your **Butterfly-MediaServer** (`https://github.com/Morningstar-1-star/Butterfly-MediaServer`) hosted on Render / custom cloud URL.
+  - Support automatic health check, catalog browsing (`/providers`, `/search/:provider`), metadata (`/meta/:provider`), episode lists (`/episodes/:provider`), and stream resolution (`/resolve/:provider` and `/stream/:provider`), with configurable server URL in Settings.
+- **Confirmed Decision 4 — Sub-Second Instant Video Playback & Fast Switching**:
+  - **800ms Initial Buffer**: Tune Media3/ExoPlayer `DefaultLoadControl` to start rendering as soon as 800ms of video data is buffered (down from 2500–5000ms standard).
+  - **Instant Player Recycling**: Rather than destroying and re-allocating `ExoPlayer` on video close or switch (`stopAndClear()`), reuse the warmed decoder pipeline, immediately cancel in-flight extraction coroutines, and reset the surface without UI freeze.
+  - **Stream URL Caching & Pre-Resolution**: Cache resolved video URLs in memory so opening previously viewed or related videos plays instantaneously with zero extraction delay.
 
 ---
 
-## 2. User Experience & Visual Design
-
-- **Key User Flows**:
-  1. **Home Feed & Source Switching**: Users launch directly into a clean, responsive Home feed with a streamlined Top Bar (Brand logo, Search, and Source Filter chip) — free of upload vault buttons or dummy cloud cards.
-  2. **Instant Thumbnail Rendering**: As the user scrolls, video cards render crisp 16:9 HD thumbnails (`hqdefault.jpg` / `hq720.jpg` with automatic 404 fallback) from a dedicated connection-pooled image loader with hardware bitmaps.
-  3. **Seamless Playback & Auto-Recovery**: Tapping any video slides up the player with lightweight hardware-accelerated motion. Playback starts via native extractors (YouTube/Bilibili) or **Butterfly-MediaServer** (Movies/Series), with automatic CDN mirror failover and `yt-dlp` fallback.
-  4. **Settings & OTA `yt-dlp` Updates**: Users can check and trigger live `yt-dlp` engine updates from `github.com/yt-dlp/yt-dlp` and inspect **Butterfly-MediaServer** health in Settings.
-
-- **Visual Identity & Theme**:
-  - *Aesthetic Direction*: **AMOLED Cinema Minimal** — high-contrast dark surfaces, crisp 16:9 edge-to-edge media cards, and zero visual clutter.
-  - *Color Palette & Mood*:
-    - `--background`: `#09090B` (True AMOLED / Deep Obsidian)
-    - `--surface`: `#121216` (Elevated Card & Bar Surface)
-    - `--primary`: `#FF3366` (Butterfly Crimson Accent)
-    - `--secondary`: `#00E5FF` (Stream Status / HD Badge Accent)
-    - `--text-primary`: `#F4F4F6` / `--text-secondary`: `#A1A1AA`
-  - *Typography & Hierarchy*: Bold, compact display headers (`20.sp` tight tracking), clean `14.sp` semi-bold 2-line video titles, and `12.sp` muted metadata rows (`Channel • Views • Relative Time`).
-  - *Component Styling & Layout*: Full-bleed 16:9 thumbnails on compact phones, adaptive 2–3 column grids on tablets/landscape, and standard Material 3 bottom navigation respecting system gesture insets.
-- **Interactive Feedback & Motion**:
-  - Fast `180ms` hardware-layer fade/slide transitions instead of simultaneous multi-layer scale+fade+offset animations that cause frame drops during video loading.
-
----
-
-## 3. Key Product Decisions & Trade-Offs
-
-- **Decision 1 — ABI Split Packaging vs. Universal Fat APK**
-  - *Chosen Approach*: Generate architecture-specific APKs (`arm64-v8a` for mobile phones, `x86_64` for emulators) with R8 minification and resource shrinking enabled on GitHub Releases.
-  - *Why*: Bundling both `x86_64` and `arm64-v8a` copies of Python, OpenSSL, and `yt-dlp` doubles the native library footprint (+42 MB of unused x86 code on every phone). Splitting by ABI cuts the mobile APK size nearly in half with zero feature loss.
-  - *Alternatives Considered*: Removing `yt-dlp` from the APK entirely — rejected because keeping `yt-dlp` on-device guarantees offline/direct extraction resilience for YouTube, Bilibili, and adult sources.
-
-- **Decision 2 — Fixing In-App `yt-dlp` OTA Updates (`github.com/yt-dlp/yt-dlp`)**
-  - *Chosen Approach*: Inject `PYTHONPATH` pointing to the downloaded `yt_dlp_updated` package directory on every `YtDlpRequest` AND support updating the standalone zipapp binary directly from `https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp`.
-  - *Why*: Previously, `YtDlpUpdateManager` downloaded the `.whl` archive and extracted it to `filesDir/yt_dlp_updated`, but `YtDlpResolver` never passed `PYTHONPATH` or updated the binary executed by `youtubedl-android`, leaving the bundled version frozen in time.
-
-- **Decision 3 — Offloading Movie/Series Scrapers to `Butterfly-MediaServer`**
-  - *Chosen Approach*: Route Movie, TV Series, and Anime catalog/stream extraction through `Butterfly-MediaServer` REST endpoints (`/providers`, `/search/:provider`, `/meta/:provider`, `/episodes/:provider`, `/stream/:provider`, `/resolve/:provider`), while removing broken local Widevine DRM OTT scrapers (`Disney+`, `HBO`, `Hotstar`, `SonyLIV`, `Discovery+`, `Amazon miniTV`).
-  - *Why*: Local HTML scrapers for DRM OTT services cannot decrypt Widevine streams and break frequently, whereas `Butterfly-MediaServer` centrally resolves working HLS/MP4 movie and series streams without bloating the Android app.
-
-- **Decision 4 — Decoupling Player Progress State from Feed Composition**
-  - *Chosen Approach*: Read `GlobalPlayerManager.progressFraction` only inside the MiniPlayer progress bar composable rather than collecting it at the root of `HomeScreen`, and remove `onGloballyPositioned` from `VideoCard`.
-  - *Why*: Collecting `progressFraction` at the top of `HomeScreen` triggered a full-screen recomposition of the entire `LazyColumn` 5 times per second whenever a video played in the background.
-
----
-
-## 4. Technical Architecture & Data Strategy *(Technical Reference)*
-
-### Architecture & Component Diagram
+## 1. Architecture & Component Diagram
 
 ```
-┌───────────────────────────────────────────────────────────────────────────┐
-│                         Butterfly Android UI Layer                        │
-│  ┌─────────────────┐   ┌────────────────────┐   ┌──────────────────────┐  │
-│  │   HomeScreen    │   │ Subscriptions/Lib  │   │  VideoPlayerScreen   │  │
-│  │ (Isolated State │   │ (Real Channels &   │   │ (Hardware ExoPlayer  │  │
-│  │  120fps Scroll) │   │  Room Watchlist)   │   │  + Auto-Failover)    │  │
-│  └────────┬────────┘   └─────────┬──────────┘   └──────────┬───────────┘  │
-└───────────┼──────────────────────┼─────────────────────────┼──────────────┘
-            │                      │                         │
-            ▼                      ▼                         ▼
-┌───────────────────────────────────────────────────────────────────────────┐
-│                      ViewModel & Stream Session Layer                     │
-│  ┌──────────────────────────────────┐  ┌───────────────────────────────┐  │
-│  │          MainViewModel           │  │        PlaybackSession        │  │
-│  │ • Concurrency-capped feed fetch  │  │ • Direct HTTP/1.1 & DoH DNS   │  │
-│  │ • Active source filtering        │  │ • Multi-mirror CDN failover   │  │
-│  └──────┬───────────────────┬───────┘  └───────────────┬───────────────┘  │
-└─────────┼───────────────────┼──────────────────────────┼──────────────────┘
-          │                   │                          │
-          ▼                   ▼                          ▼
-┌─────────────────────┐ ┌────────────────────────┐ ┌────────────────────────┐
-│ In-App Core Engines │ │  yt-dlp Native Engine  │ │ Butterfly-MediaServer  │
-│ • YouTube (NewPipe) │ │ • Bundled Python/yt-dlp│ │ • /providers & /search │
-│ • Bilibili (WBI +   │ │ • Live GitHub OTA via  │ │ • /meta & /episodes    │
-│   Multi-CDN Mirrors)│ │   PYTHONPATH & zipapp  │ │ • /resolve & /stream   │
-│ • Fast Tube Parsers │ │ • Cookie & Header sync │ │ • Server-side scrapers │
-└─────────────────────┘ └────────────────────────┘ └────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                        Butterfly Android Client                        │
+│                                                                        │
+│  ┌─────────────────────────┐          ┌─────────────────────────────┐  │
+│  │     Feed & Search       │          │    UniversalVideoPlayer     │  │
+│  │ • 120fps smooth scroll  │          │ • Sub-second startup        │  │
+│  │ • Instant HD thumbnails │          │ • 800ms fast buffer window  │  │
+│  │ • Zero recompositions   │          │ • Instant decoder reuse     │  │
+│  └───────────┬─────────────┘          └──────────────┬──────────────┘  │
+└──────────────┼───────────────────────────────────────┼─────────────────┘
+               │                                       │
+               ▼                                       ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                        Extraction & Routing Layer                      │
+│                                                                        │
+│  ┌──────────────────┐   ┌───────────────────┐   ┌───────────────────┐  │
+│  │     YouTube      │   │     Bilibili      │   │  Real Adult Tubes │  │
+│  │ • NewPipe core   │   │ • Multi-CDN       │   │ • Real SupJav     │  │
+│  │ • yt-dlp fallback│   │ • Non-P2P priority│   │ • MissAV / 123AV  │  │
+│  │ • Direct streams │   │ • WBI signed API  │   │ • No fake demos   │  │
+│  └──────────────────┘   └───────────────────┘   └───────────────────┘  │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│              Butterfly-MediaServer (Render / Cloud Server)             │
+│  • Movie, TV Series & Anime Extraction (Nuvio + Vega)                  │
+│  • Endpoints: /providers, /search, /meta, /episodes, /resolve, /stream │
+│  • Centralized HLS/MP4 Resolution with Zero Client Scraper Overhead    │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Data Model & State Strategy
+---
 
-1. **APK Build & Packaging Pipeline**:
-   - Remove `libs.play.services.mlkit.text.recognition` from Gradle dependencies.
-   - Configure ABI splits (`arm64-v8a` and `x86_64`) and update the GitHub Actions workflow so release builds produce lean, R8-shrunk APKs for 64-bit mobile devices (`arm64-v8a`) alongside a universal or emulator build.
-2. **Stream & Extractor Routing**:
-   - **YouTube**: Untouched primary `YouTubeExtractorHelper` (`NewPipeExtractor` + PoToken support) with automatic fallback to `YtDlpResolver`.
-   - **Bilibili**: Multi-CDN mirror extraction (`BilibiliProvider`) with non-P2P prioritization, DoH + carrier DNS validation, and `YtDlpResolver` fallback.
-   - **Movies / Series / Anime**: Routed to `Butterfly-MediaServer` (`VegaProviderClient` / `VegaProviderRepository`) using canonical `/search/:provider`, `/meta/:provider`, and `/resolve/:provider` endpoints.
-   - **Live `yt-dlp` OTA Updater (`YtDlpUpdateManager` + `YtDlpResolver`)**:
-     - When an OTA update is downloaded from GitHub (`yt-dlp/yt-dlp`), `YtDlpResolver` injects `Os.setenv("PYTHONPATH", updatedDir.absolutePath, true)` before process execution so the updated Python extractors are actively used by the embedded Python runtime.
-3. **Thumbnail & Scroll Pipeline**:
-   - Dedicated `ImageLoader` using fast system DNS with connection pooling (`maxRequests = 64`, `maxRequestsPerHost = 16`), RGB_565 / Hardware bitmaps, and smart YouTube thumbnail resolution (`hqdefault.jpg` primary or `hq720.jpg` with automatic `.error()` fallback to `hqdefault.jpg` so missing 720p thumbnails never stall on 404).
-   - State reads in `HomeScreen` are scoped to child composables (`MiniPlayerHost`, `TopBarOverlay`) so scrolling the `LazyColumn` causes zero parent recompositions.
+## 2. Step-by-Step Implementation Sequence
+
+### Step 1: Real APK Size Reduction (~45 MB Release Builds on GitHub Actions)
+1. **Remove Redundant Dependencies**: Verify whether `libs.yt.dlp.android.compat` is required or if `yt.dlp.android` alone suffices; prune unused libraries.
+2. **Release Keystore in GitHub Actions**:
+   - Update `.github/workflows/android.yml` to always run `assembleRelease -PenableAbiSplits=true` using a generated fallback repository keystore when secrets are not populated in GitHub.
+   - Ensure R8 code shrinking (`isMinifyEnabled = true`) and resource shrinking (`isShrinkResources = true`) run on all GitHub builds.
+   - Output `Butterfly-${VERSION_NAME}-arm64-v8a.apk` as the primary mobile package (~45 MB) and `Butterfly-${VERSION_NAME}-x86_64.apk` for emulators.
+
+### Step 2: SupJav & JAV Scraper Overhaul (Eliminate Fake Demo Data)
+1. **Purge Fake Demo Catalog**:
+   - Remove `getCuratedJavCatalog()` and all hardcoded demo lists with Unsplash images from `JavVideoExtractor.kt`.
+2. **Live SupJav Mirror Scraper**:
+   - Update `SupJavResolver.kt` with healthy current mirrors, updated User-Agents, and improved HTML regex parsers for TVLogy / StreamWish / STB embeds.
+   - When SupJav mirrors return 403 / Cloudflare challenges, seamlessly fall back to live query resolution against **123AV**, **JavTiful**, **Jable**, or **MissAV** to return genuine playable videos with working streams.
+3. **Audit All Video Providers**:
+   - Check all registered sources (`YouTube`, `Bilibili`, `Dailymotion`, `Vimeo`, `TubiTV`, `Tencent`, adult tube providers) to verify there are zero simulated or dead demo fallbacks remaining.
+
+### Step 3: Connect Vega and Nuvio to `Butterfly-MediaServer`
+1. **Centralize Server URL & Configuration**:
+   - Update `AppConfig.kt` and `VegaProviderClient.kt` so both Vega and Nuvio route movie, series, and anime catalog and stream requests through your **Butterfly-MediaServer** URL (`https://butterfly-mediaserver.onrender.com` or custom server URL).
+   - In `SettingsScreen.kt`, provide a dedicated "Butterfly-MediaServer" settings card where you can test server health (`/providers` ping) and enter a custom server URL if hosted on a different domain.
+2. **Wire Nuvio to Butterfly-MediaServer**:
+   - Update `NuvioProvider.kt` and `NuvioProviderEngine.kt` to query Butterfly-MediaServer's `/resolve/nuvio` or `/search/nuvio` endpoints when available, falling back to direct stream options if offline.
+
+### Step 4: Sub-Second Video Playback & Fast Video Switching
+1. **ExoPlayer Low-Latency Buffer Configuration**:
+   - Update `PlayerCore.kt` to configure `DefaultLoadControl` with:
+     - `minBufferMs = 1500`
+     - `maxBufferMs = 10000`
+     - `bufferForPlaybackMs = 800` (starts playback immediately after 800ms of data is received)
+     - `bufferForPlaybackAfterRebufferMs = 1200`
+2. **Instant Player Pipeline Recycling**:
+   - In `PlaybackSession.kt` and `GlobalPlayerManager.kt`, change `stopAndClear()` so it pauses and detaches media items without deallocating codec instances, allowing new videos to start immediately without a 3-second decoder re-initialization penalty.
+3. **Cancellation & Race-Condition Guard**:
+   - Ensure that whenever a new video card is clicked, any previous stream extraction coroutine or network call is cancelled instantly with zero delay, ensuring network bandwidth and CPU are 100% dedicated to the new video.
+4. **Fast In-Memory Stream Cache**:
+   - Add a fast LRU memory cache for resolved stream options so navigating back and forth between videos starts playback instantly with 0ms extraction latency.
+
+---
+
+## 3. Verification & Build Confirmation
+
+1. **Compilation Check**: Run `compile_applet` to ensure zero compilation or lint errors.
+2. **Size Audit**: Verify Gradle packaging and dependencies to confirm native library pruning and R8 release rules.
+3. **Playback Latency Check**: Test that video switching cancels background operations and initiates playback without delay.

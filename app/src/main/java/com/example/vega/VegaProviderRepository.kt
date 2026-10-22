@@ -12,7 +12,7 @@ class VegaProviderRepository(private val context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     private val _isVegaMasterEnabled = MutableStateFlow(
-        prefs.getBoolean(KEY_VEGA_MASTER_ENABLED, true)
+        prefs.getBoolean(KEY_VEGA_MASTER_ENABLED, false)
     )
     val isVegaMasterEnabled: StateFlow<Boolean> = _isVegaMasterEnabled.asStateFlow()
 
@@ -33,8 +33,8 @@ class VegaProviderRepository(private val context: Context) {
         } catch (_: Exception) {}
 
         // Sync global flag on startup
-        VegaProviderClient.isVegaGloballyEnabled = _isVegaMasterEnabled.value
         loadInstalledProviders()
+        VegaProviderClient.isVegaGloballyEnabled = _isVegaMasterEnabled.value
     }
 
     fun isVegaMasterEnabled(): Boolean = _isVegaMasterEnabled.value
@@ -58,6 +58,19 @@ class VegaProviderRepository(private val context: Context) {
     }
 
     private fun loadInstalledProviders() {
+        val cleanStartInitialized = prefs.getBoolean("vega_clean_start_v4", false)
+        if (!cleanStartInitialized) {
+            _installedProviders.value = emptyList()
+            _isVegaMasterEnabled.value = false
+            VegaProviderClient.isVegaGloballyEnabled = false
+            prefs.edit()
+                .putString(KEY_INSTALLED_PROVIDERS, "[]")
+                .putBoolean(KEY_VEGA_MASTER_ENABLED, false)
+                .putBoolean("vega_clean_start_v4", true)
+                .apply()
+            return
+        }
+
         val jsonStr = prefs.getString(KEY_INSTALLED_PROVIDERS, null)
         val list = mutableListOf<InstalledVegaProvider>()
 
@@ -84,24 +97,6 @@ class VegaProviderRepository(private val context: Context) {
             } catch (e: Exception) {
                 // Ignore parse errors
             }
-        }
-
-        // If no providers installed yet, populate with registered providers enabled by default
-        if (list.isEmpty()) {
-            val registered = VegaProviderRegistry.getAllProviders()
-            val initialList = registered.map { p ->
-                InstalledVegaProvider(
-                    id = p.id.lowercase().trim(),
-                    name = p.name,
-                    isEnabled = true,
-                    installedAtMs = System.currentTimeMillis()
-                )
-            }
-            list.addAll(initialList)
-            saveInstalledProviders(list)
-            _isVegaMasterEnabled.value = true
-            VegaProviderClient.isVegaGloballyEnabled = true
-            prefs.edit().putBoolean(KEY_VEGA_MASTER_ENABLED, true).apply()
         }
 
         _installedProviders.value = list
@@ -140,6 +135,9 @@ class VegaProviderRepository(private val context: Context) {
             current.add(InstalledVegaProvider(id = cleanId, name = name, isEnabled = true))
         }
         saveInstalledProviders(current)
+        if (!_isVegaMasterEnabled.value) {
+            setVegaMasterEnabled(true)
+        }
     }
 
     fun installAllProviders(providerIds: List<String>) {
@@ -157,6 +155,9 @@ class VegaProviderRepository(private val context: Context) {
             }
         }
         saveInstalledProviders(currentMap.values.toList())
+        if (!_isVegaMasterEnabled.value && currentMap.isNotEmpty()) {
+            setVegaMasterEnabled(true)
+        }
     }
 
     fun uninstallProvider(id: String) {
