@@ -79,6 +79,56 @@ object BilibiliProvider {
     private val httpClient: OkHttpClient
         get() = com.example.util.NetworkManager.scraperClient
 
+    private val videoItemCache = java.util.concurrent.ConcurrentHashMap<String, VideoItem>()
+    private val bvidToAidCache = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    fun normalizeHttpsUrl(raw: String?): String {
+        if (raw.isNullOrBlank()) return ""
+        val trimmed = raw.trim()
+        return when {
+            trimmed.startsWith("//") -> "https:$trimmed"
+            trimmed.startsWith("http://", ignoreCase = true) -> "https://" + trimmed.substring(7)
+            else -> trimmed
+        }
+    }
+
+    fun cacheBilibiliItem(bvid: String, aid: Long, item: VideoItem) {
+        val cleanBvid = bvid.trim()
+        if (cleanBvid.isNotBlank()) {
+            videoItemCache[cleanBvid] = item
+            videoItemCache["https://www.bilibili.com/video/$cleanBvid"] = item
+            if (aid > 0L) {
+                bvidToAidCache[cleanBvid] = aid
+            }
+        }
+        if (item.id.isNotBlank()) {
+            videoItemCache[item.id] = item
+        }
+    }
+
+    fun getCachedItem(urlOrBvid: String?): VideoItem? {
+        if (urlOrBvid.isNullOrBlank()) return null
+        val clean = urlOrBvid.trim()
+        videoItemCache[clean]?.let { return it }
+        val bvidMatch = Regex("(BV[a-zA-Z0-9]{10})").find(clean)?.groupValues?.get(1)
+        if (!bvidMatch.isNullOrBlank()) {
+            videoItemCache[bvidMatch]?.let { return it }
+            videoItemCache["https://www.bilibili.com/video/$bvidMatch"]?.let { return it }
+        }
+        return null
+    }
+
+    fun getCachedAid(bvidOrUrl: String?): Long? {
+        if (bvidOrUrl.isNullOrBlank()) return null
+        val clean = bvidOrUrl.trim()
+        bvidToAidCache[clean]?.let { if (it > 0L) return it }
+        val bvidMatch = Regex("(BV[a-zA-Z0-9]{10})").find(clean)?.groupValues?.get(1)
+        if (!bvidMatch.isNullOrBlank()) {
+            bvidToAidCache[bvidMatch]?.let { if (it > 0L) return it }
+        }
+        return null
+    }
+
     val DEFAULT_BILIBILI_HOME_FALLBACK = listOf(
         VideoItem(
             id = "https://www.bilibili.com/video/BV1Hxah6BEGy",
@@ -455,9 +505,20 @@ object BilibiliProvider {
         val dataObj = metaJson?.optJSONObject("data")
 
         val resolvedBvid = dataObj?.optString("bvid", bvid) ?: bvid
-        val resolvedAid = dataObj?.optLong("aid", 0L) ?: (aid.toLongOrNull() ?: 0L)
+        val cachedAidVal = getCachedAid(resolvedBvid.ifBlank { bvid }) ?: 0L
+        val resolvedAid = dataObj?.optLong("aid", 0L)?.takeIf { it > 0L }
+            ?: aid.toLongOrNull()?.takeIf { it > 0L }
+            ?: cachedAidVal
+        if (resolvedBvid.isNotBlank() && resolvedAid > 0L) {
+            bvidToAidCache[resolvedBvid] = resolvedAid
+        }
 
-        val rawTitle = customTitle ?: dataObj?.optString("title", "Bilibili Video") ?: "Bilibili Video"
+        val cachedItem = getCachedItem(resolvedBvid.ifBlank { bvid })
+        val apiTitle = dataObj?.optString("title", "")?.takeIf { it.isNotBlank() && it != "Bilibili Video" }
+        val rawTitle = customTitle?.takeIf { it.isNotBlank() && it != "Bilibili Video" }
+            ?: apiTitle
+            ?: cachedItem?.title?.takeIf { it.isNotBlank() }
+            ?: "Bilibili Video"
         val cleanTitle = rawTitle.replace(Regex("<[^>]*>"), "").trim()
         val cachedTranslation = com.example.util.SubtitleTranslator.translationCache.get("$cleanTitle|en")
         val translatedEnglishTitle = if (!cachedTranslation.isNullOrBlank()) {
@@ -477,16 +538,24 @@ object BilibiliProvider {
             cleanTitle
         }
 
-        var pic = customThumb ?: dataObj?.optString("pic", "") ?: ""
-        if (pic.startsWith("//")) pic = "https:$pic"
+        val rawPic = customThumb?.takeIf { it.isNotBlank() }
+            ?: dataObj?.optString("pic", "")?.takeIf { it.isNotBlank() }
+            ?: cachedItem?.thumbnailUrl.orEmpty()
+        val pic = normalizeHttpsUrl(rawPic)
 
-        val desc = customDesc ?: dataObj?.optString("desc", "") ?: ""
+        val desc = customDesc ?: dataObj?.optString("desc", "") ?: cachedItem?.description.orEmpty()
         val ownerObj = dataObj?.optJSONObject("owner")
-        val uploader = customUploader ?: ownerObj?.optString("name", "Bilibili") ?: "Bilibili"
-        var avatar = ownerObj?.optString("face", "")
-        if (avatar?.startsWith("//") == true) avatar = "https:$avatar"
+        val apiOwnerName = ownerObj?.optString("name", "")?.takeIf { it.isNotBlank() && !it.equals("Bilibili", ignoreCase = true) }
+        val uploader = customUploader?.takeIf { it.isNotBlank() && !it.equals("Bilibili", ignoreCase = true) }
+            ?: apiOwnerName
+            ?: cachedItem?.uploaderName?.takeIf { it.isNotBlank() && !it.equals("Bilibili", ignoreCase = true) }
+            ?: ownerObj?.optString("name", "Bilibili Creator")
+            ?: "Bilibili Creator"
+        val rawAvatar = ownerObj?.optString("face", "")?.takeIf { it.isNotBlank() }
+            ?: cachedItem?.uploaderAvatarUrl.orEmpty()
+        val avatar = normalizeHttpsUrl(rawAvatar).ifBlank { null }
         val statObj = dataObj?.optJSONObject("stat")
-        val viewCount = statObj?.optLong("view", 0L) ?: 0L
+        val viewCount = statObj?.optLong("view", 0L)?.takeIf { it > 0L } ?: cachedItem?.viewCount?.takeIf { it > 0L } ?: 0L
         val likeCount = statObj?.optLong("like", 0L) ?: 0L
 
         var cid = overrideCid
@@ -1819,13 +1888,12 @@ object BilibiliProvider {
                                 val cleanTitle = rawTitle.replace(Regex("<[^>]*>"), "").trim()
                                 val finalTitle = cleanTitle
 
-                                var pic = item.optString("pic", "")
-                                if (pic.startsWith("//")) pic = "https:$pic"
+                                val pic = normalizeHttpsUrl(item.optString("pic", ""))
                                 val ownerObj = item.optJSONObject("owner")
                                 val owner = ownerObj?.optString("name", "Bilibili") ?: "Bilibili"
-                                var face = ownerObj?.optString("face", "") ?: ""
-                                if (face.startsWith("//")) face = "https:$face"
+                                val face = normalizeHttpsUrl(ownerObj?.optString("face", ""))
                                 val mid = ownerObj?.optLong("mid", 0L) ?: 0L
+                                val itemAid = item.optLong("aid", 0L)
                                 val uploaderUrl = if (mid > 0L) "https://space.bilibili.com/$mid" else null
                                 val duration = item.optLong("duration", -1L)
                                 val stat = item.optJSONObject("stat")
@@ -1848,6 +1916,7 @@ object BilibiliProvider {
                                     detectedLanguage = "zh",
                                     providerId = PROVIDER_ID
                                 )
+                                cacheBilibiliItem(bvid, itemAid, videoItem)
                                 if (com.example.util.LanguageFilterHelper.isAllowedVideoItem(videoItem)) {
                                     list.add(videoItem)
                                 }
@@ -1889,13 +1958,12 @@ object BilibiliProvider {
                                 val cleanTitle = rawTitle.replace(Regex("<[^>]*>"), "").trim()
                                 val finalTitle = cleanTitle
 
-                                var pic = item.optString("pic", "")
-                                if (pic.startsWith("//")) pic = "https:$pic"
+                                val pic = normalizeHttpsUrl(item.optString("pic", ""))
                                 val ownerObj = item.optJSONObject("owner")
                                 val owner = ownerObj?.optString("name", "Bilibili") ?: "Bilibili"
-                                var face = ownerObj?.optString("face", "") ?: ""
-                                if (face.startsWith("//")) face = "https:$face"
+                                val face = normalizeHttpsUrl(ownerObj?.optString("face", ""))
                                 val mid = ownerObj?.optLong("mid", 0L) ?: 0L
+                                val itemAid = item.optLong("aid", 0L)
                                 val uploaderUrl = if (mid > 0L) "https://space.bilibili.com/$mid" else null
                                 val duration = item.optLong("duration", -1L)
                                 val stat = item.optJSONObject("stat")
@@ -1918,6 +1986,7 @@ object BilibiliProvider {
                                     detectedLanguage = "zh",
                                     providerId = PROVIDER_ID
                                 )
+                                cacheBilibiliItem(bvid, itemAid, videoItem)
                                 if (com.example.util.LanguageFilterHelper.isAllowedVideoItem(videoItem)) {
                                     list.add(videoItem)
                                 }
@@ -1959,34 +2028,33 @@ object BilibiliProvider {
                                 val cleanTitle = rawTitle.replace(Regex("<[^>]*>"), "").trim()
                                 val finalTitle = cleanTitle
 
-                                var pic = item.optString("pic", "")
-                                if (pic.startsWith("//")) pic = "https:$pic"
+                                val pic = normalizeHttpsUrl(item.optString("pic", ""))
                                 val ownerObj = item.optJSONObject("owner")
                                 val owner = ownerObj?.optString("name", "Bilibili") ?: "Bilibili"
-                                var face = ownerObj?.optString("face", "") ?: ""
-                                if (face.startsWith("//")) face = "https:$face"
+                                val face = normalizeHttpsUrl(ownerObj?.optString("face", ""))
                                 val mid = ownerObj?.optLong("mid", 0L) ?: 0L
+                                val itemAid = item.optLong("aid", 0L)
                                 val uploaderUrl = if (mid > 0L) "https://space.bilibili.com/$mid" else null
                                 val duration = item.optLong("duration", -1L)
                                 val stat = item.optJSONObject("stat")
                                 val viewCount = stat?.optLong("view", -1L) ?: -1L
 
-                                list.add(
-                                    VideoItem(
-                                        id = "https://www.bilibili.com/video/$bvid",
-                                        title = finalTitle,
-                                        uploaderName = owner,
-                                        uploaderAvatarUrl = if (face.isNotBlank()) face else null,
-                                        uploaderUrl = uploaderUrl,
-                                        durationSeconds = duration,
-                                        viewCount = viewCount,
-                                        thumbnailUrl = pic,
-                                        originalTitle = cleanTitle,
-                                        translatedTitleEN = if (finalTitle != cleanTitle) finalTitle else null,
-                                        detectedLanguage = "zh",
-                                        providerId = PROVIDER_ID
-                                    )
+                                val videoItem = VideoItem(
+                                    id = "https://www.bilibili.com/video/$bvid",
+                                    title = finalTitle,
+                                    uploaderName = owner,
+                                    uploaderAvatarUrl = if (face.isNotBlank()) face else null,
+                                    uploaderUrl = uploaderUrl,
+                                    durationSeconds = duration,
+                                    viewCount = viewCount,
+                                    thumbnailUrl = pic,
+                                    originalTitle = cleanTitle,
+                                    translatedTitleEN = if (finalTitle != cleanTitle) finalTitle else null,
+                                    detectedLanguage = "zh",
+                                    providerId = PROVIDER_ID
                                 )
+                                cacheBilibiliItem(bvid, itemAid, videoItem)
+                                list.add(videoItem)
                                 if (list.size >= limit) break
                             }
                         }
@@ -2025,34 +2093,33 @@ object BilibiliProvider {
                                 val cleanTitle = rawTitle.replace(Regex("<[^>]*>"), "").trim()
                                 val finalTitle = cleanTitle
 
-                                var pic = item.optString("pic", "")
-                                if (pic.startsWith("//")) pic = "https:$pic"
+                                val pic = normalizeHttpsUrl(item.optString("pic", ""))
                                 val ownerObj = item.optJSONObject("owner")
                                 val owner = ownerObj?.optString("name", "Bilibili") ?: "Bilibili"
-                                var face = ownerObj?.optString("face", "") ?: ""
-                                if (face.startsWith("//")) face = "https:$face"
+                                val face = normalizeHttpsUrl(ownerObj?.optString("face", ""))
                                 val mid = ownerObj?.optLong("mid", 0L) ?: 0L
+                                val itemAid = item.optLong("aid", 0L)
                                 val uploaderUrl = if (mid > 0L) "https://space.bilibili.com/$mid" else null
                                 val duration = item.optLong("duration", -1L)
                                 val stat = item.optJSONObject("stat")
                                 val viewCount = stat?.optLong("view", -1L) ?: -1L
 
-                                list.add(
-                                    VideoItem(
-                                        id = "https://www.bilibili.com/video/$bvid",
-                                        title = finalTitle,
-                                        uploaderName = owner,
-                                        uploaderAvatarUrl = if (face.isNotBlank()) face else null,
-                                        uploaderUrl = uploaderUrl,
-                                        durationSeconds = duration,
-                                        viewCount = viewCount,
-                                        thumbnailUrl = pic,
-                                        originalTitle = cleanTitle,
-                                        translatedTitleEN = if (finalTitle != cleanTitle) finalTitle else null,
-                                        detectedLanguage = "zh",
-                                        providerId = PROVIDER_ID
-                                    )
+                                val videoItem = VideoItem(
+                                    id = "https://www.bilibili.com/video/$bvid",
+                                    title = finalTitle,
+                                    uploaderName = owner,
+                                    uploaderAvatarUrl = if (face.isNotBlank()) face else null,
+                                    uploaderUrl = uploaderUrl,
+                                    durationSeconds = duration,
+                                    viewCount = viewCount,
+                                    thumbnailUrl = pic,
+                                    originalTitle = cleanTitle,
+                                    translatedTitleEN = if (finalTitle != cleanTitle) finalTitle else null,
+                                    detectedLanguage = "zh",
+                                    providerId = PROVIDER_ID
                                 )
+                                cacheBilibiliItem(bvid, itemAid, videoItem)
+                                list.add(videoItem)
                                 if (list.size >= limit) break
                             }
                         }
@@ -2091,34 +2158,33 @@ object BilibiliProvider {
                                 val cleanTitle = rawTitle.replace(Regex("<[^>]*>"), "").trim()
                                 val finalTitle = cleanTitle
 
-                                var pic = item.optString("pic", "")
-                                if (pic.startsWith("//")) pic = "https:$pic"
+                                val pic = normalizeHttpsUrl(item.optString("pic", ""))
                                 val ownerObj = item.optJSONObject("owner")
                                 val owner = ownerObj?.optString("name", "Bilibili") ?: "Bilibili"
-                                var face = ownerObj?.optString("face", "") ?: ""
-                                if (face.startsWith("//")) face = "https:$face"
+                                val face = normalizeHttpsUrl(ownerObj?.optString("face", ""))
                                 val mid = ownerObj?.optLong("mid", 0L) ?: 0L
+                                val itemAid = item.optLong("aid", 0L)
                                 val uploaderUrl = if (mid > 0L) "https://space.bilibili.com/$mid" else null
                                 val duration = item.optLong("duration", -1L)
                                 val stat = item.optJSONObject("stat")
                                 val viewCount = stat?.optLong("view", -1L) ?: -1L
 
-                                list.add(
-                                    VideoItem(
-                                        id = "https://www.bilibili.com/video/$bvid",
-                                        title = finalTitle,
-                                        uploaderName = owner,
-                                        uploaderAvatarUrl = if (face.isNotBlank()) face else null,
-                                        uploaderUrl = uploaderUrl,
-                                        durationSeconds = duration,
-                                        viewCount = viewCount,
-                                        thumbnailUrl = pic,
-                                        originalTitle = cleanTitle,
-                                        translatedTitleEN = if (finalTitle != cleanTitle) finalTitle else null,
-                                        detectedLanguage = "zh",
-                                        providerId = PROVIDER_ID
-                                    )
+                                val videoItem = VideoItem(
+                                    id = "https://www.bilibili.com/video/$bvid",
+                                    title = finalTitle,
+                                    uploaderName = owner,
+                                    uploaderAvatarUrl = if (face.isNotBlank()) face else null,
+                                    uploaderUrl = uploaderUrl,
+                                    durationSeconds = duration,
+                                    viewCount = viewCount,
+                                    thumbnailUrl = pic,
+                                    originalTitle = cleanTitle,
+                                    translatedTitleEN = if (finalTitle != cleanTitle) finalTitle else null,
+                                    detectedLanguage = "zh",
+                                    providerId = PROVIDER_ID
                                 )
+                                cacheBilibiliItem(bvid, itemAid, videoItem)
+                                list.add(videoItem)
                                 if (list.size >= limit) break
                             }
                         }
@@ -2199,33 +2265,33 @@ object BilibiliProvider {
                         val cleanTitle = rawTitle.replace(Regex("<[^>]*>"), "").trim()
                         val finalTitle = cleanTitle
 
-                        var pic = item.optString("pic", "")
-                        if (pic.startsWith("//")) pic = "https:$pic"
+                        val pic = normalizeHttpsUrl(item.optString("pic", ""))
                         val author = item.optString("author", "Bilibili")
                         val upic = item.optString("upic", item.optString("uface", ""))
-                        var avatar = if (upic.startsWith("//")) "https:$upic" else upic
+                        val avatar = normalizeHttpsUrl(upic)
                         val mid = item.optLong("mid", 0L)
+                        val itemAid = item.optLong("aid", item.optLong("id", 0L))
                         val uploaderUrl = if (mid > 0L) "https://space.bilibili.com/$mid" else null
                         val play = item.optLong("play", -1L)
                         val durationRaw = item.optString("duration", "")
                         val durationSec = parseDurationString(durationRaw)
 
-                        list.add(
-                            VideoItem(
-                                id = "https://www.bilibili.com/video/$bvid",
-                                title = finalTitle,
-                                uploaderName = author,
-                                uploaderAvatarUrl = if (avatar.isNotBlank()) avatar else null,
-                                uploaderUrl = uploaderUrl,
-                                durationSeconds = durationSec,
-                                viewCount = play,
-                                thumbnailUrl = pic,
-                                originalTitle = cleanTitle,
-                                translatedTitleEN = if (finalTitle != cleanTitle) finalTitle else null,
-                                detectedLanguage = "zh",
-                                providerId = PROVIDER_ID
-                            )
+                        val videoItem = VideoItem(
+                            id = "https://www.bilibili.com/video/$bvid",
+                            title = finalTitle,
+                            uploaderName = author,
+                            uploaderAvatarUrl = if (avatar.isNotBlank()) avatar else null,
+                            uploaderUrl = uploaderUrl,
+                            durationSeconds = durationSec,
+                            viewCount = play,
+                            thumbnailUrl = pic,
+                            originalTitle = cleanTitle,
+                            translatedTitleEN = if (finalTitle != cleanTitle) finalTitle else null,
+                            detectedLanguage = "zh",
+                            providerId = PROVIDER_ID
                         )
+                        cacheBilibiliItem(bvid, itemAid, videoItem)
+                        list.add(videoItem)
                         if (list.size >= limit) break
                     }
                 }
@@ -2266,33 +2332,33 @@ object BilibiliProvider {
                         val cleanTitle = rawTitle.replace(Regex("<[^>]*>"), "").trim()
                         val finalTitle = cleanTitle
 
-                        var pic = item.optString("pic", "")
-                        if (pic.startsWith("//")) pic = "https:$pic"
+                        val pic = normalizeHttpsUrl(item.optString("pic", ""))
                         val author = item.optString("author", "Bilibili")
                         val upic = item.optString("upic", item.optString("uface", ""))
-                        var avatar = if (upic.startsWith("//")) "https:$upic" else upic
+                        val avatar = normalizeHttpsUrl(upic)
                         val mid = item.optLong("mid", 0L)
+                        val itemAid = item.optLong("aid", item.optLong("id", 0L))
                         val uploaderUrl = if (mid > 0L) "https://space.bilibili.com/$mid" else null
                         val play = item.optLong("play", -1L)
                         val durationRaw = item.optString("duration", "")
                         val durationSec = parseDurationString(durationRaw)
 
-                        list.add(
-                            VideoItem(
-                                id = "https://www.bilibili.com/video/$bvid",
-                                title = finalTitle,
-                                uploaderName = author,
-                                uploaderAvatarUrl = if (avatar.isNotBlank()) avatar else null,
-                                uploaderUrl = uploaderUrl,
-                                durationSeconds = durationSec,
-                                viewCount = play,
-                                thumbnailUrl = pic,
-                                originalTitle = cleanTitle,
-                                translatedTitleEN = if (finalTitle != cleanTitle) finalTitle else null,
-                                detectedLanguage = "zh",
-                                providerId = PROVIDER_ID
-                            )
+                        val videoItem = VideoItem(
+                            id = "https://www.bilibili.com/video/$bvid",
+                            title = finalTitle,
+                            uploaderName = author,
+                            uploaderAvatarUrl = if (avatar.isNotBlank()) avatar else null,
+                            uploaderUrl = uploaderUrl,
+                            durationSeconds = durationSec,
+                            viewCount = play,
+                            thumbnailUrl = pic,
+                            originalTitle = cleanTitle,
+                            translatedTitleEN = if (finalTitle != cleanTitle) finalTitle else null,
+                            detectedLanguage = "zh",
+                            providerId = PROVIDER_ID
                         )
+                        cacheBilibiliItem(bvid, itemAid, videoItem)
+                        list.add(videoItem)
                         if (list.size >= limit) break
                     }
                 }

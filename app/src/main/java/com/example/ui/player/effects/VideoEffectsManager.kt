@@ -32,11 +32,11 @@ class VideoEffectsManager private constructor(context: Context) {
     val config: StateFlow<VideoEffectsConfig> = _config.asStateFlow()
 
     private fun loadConfig(): VideoEffectsConfig {
-        val brightness = prefs.getFloat(KEY_BRIGHTNESS, 0.0f)
-        val contrast = prefs.getFloat(KEY_CONTRAST, 1.0f)
-        val saturation = prefs.getFloat(KEY_SATURATION, 1.0f)
-        val amoled = prefs.getFloat(KEY_AMOLED, 0.0f)
-        val nightShield = prefs.getFloat(KEY_NIGHT_SHIELD, 0.0f)
+        val brightness = prefs.getFloat(KEY_BRIGHTNESS, 0.0f).takeIf { !it.isNaN() }?.coerceIn(-0.4f, 0.4f) ?: 0.0f
+        val contrast = prefs.getFloat(KEY_CONTRAST, 1.0f).takeIf { !it.isNaN() }?.coerceIn(0.6f, 1.6f) ?: 1.0f
+        val saturation = prefs.getFloat(KEY_SATURATION, 1.0f).takeIf { !it.isNaN() }?.coerceIn(0.0f, 2.0f) ?: 1.0f
+        val amoled = prefs.getFloat(KEY_AMOLED, 0.0f).takeIf { !it.isNaN() }?.coerceIn(0.0f, 0.5f) ?: 0.0f
+        val nightShield = prefs.getFloat(KEY_NIGHT_SHIELD, 0.0f).takeIf { !it.isNaN() }?.coerceIn(0.0f, 0.6f) ?: 0.0f
         val presetName = prefs.getString(KEY_PRESET, VideoPreset.STANDARD.name) ?: VideoPreset.STANDARD.name
         val preset = runCatching { VideoPreset.valueOf(presetName) }.getOrDefault(VideoPreset.STANDARD)
 

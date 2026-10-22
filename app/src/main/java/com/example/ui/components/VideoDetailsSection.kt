@@ -90,11 +90,25 @@ fun VideoDetailsSection(
     val context = androidx.compose.ui.platform.LocalContext.current
 
     val currentVideoId = streamData?.videoId ?: previewItem?.id ?: ""
-    val rawTitle = streamData?.title?.takeIf { it.isNotBlank() } ?: previewItem?.title?.takeIf { it.isNotBlank() } ?: "Loading video..."
-    val currentChannelName = streamData?.channelName?.takeIf { it.isNotBlank() } ?: previewItem?.uploaderName?.takeIf { it.isNotBlank() } ?: "Video Creator"
-    val currentChannelAvatarUrl = streamData?.channelAvatarUrl ?: previewItem?.uploaderAvatarUrl
+    val rawTitle = streamData?.title?.takeIf {
+        it.isNotBlank() &&
+        !it.equals("Bilibili Video", ignoreCase = true) &&
+        !it.equals("YouTube Video", ignoreCase = true) &&
+        !it.equals("Video", ignoreCase = true)
+    } ?: previewItem?.title?.takeIf { it.isNotBlank() }
+        ?: streamData?.title?.takeIf { it.isNotBlank() }
+        ?: "Loading video..."
+    val currentChannelName = streamData?.channelName?.takeIf {
+        it.isNotBlank() &&
+        !it.equals("Bilibili", ignoreCase = true) &&
+        !it.equals("YouTube", ignoreCase = true) &&
+        !it.equals("Video", ignoreCase = true)
+    } ?: previewItem?.uploaderName?.takeIf { it.isNotBlank() }
+        ?: streamData?.channelName?.takeIf { it.isNotBlank() }
+        ?: "Video Creator"
+    val currentChannelAvatarUrl = streamData?.channelAvatarUrl?.takeIf { it.isNotBlank() } ?: previewItem?.uploaderAvatarUrl
     val currentSubscriberCountText = streamData?.subscriberCountText
-    val currentViewCount = streamData?.viewCount ?: previewItem?.viewCount ?: 0L
+    val currentViewCount = streamData?.viewCount?.takeIf { it > 0L } ?: previewItem?.viewCount ?: 0L
     val currentUploadDate = streamData?.uploadDate ?: previewItem?.uploadDate
     val currentLikeCount = streamData?.likeCount ?: 0L
     val currentDescription = streamData?.description?.takeIf { it.isNotBlank() } ?: previewItem?.description
@@ -123,7 +137,10 @@ fun VideoDetailsSection(
     }
 
     LaunchedEffect(currentVideoId, currentTitle, currentProviderId) {
-        if (currentTitle.isNotBlank()) {
+        val pid = (currentProviderId ?: "").lowercase()
+        val isMovieOrAnimeSource = pid in setOf("tmdb", "tmdb_embed", "torrent", "vega", "vidsrc", "anilist", "jikan", "cinematv", "movie")
+        if (isMovieOrAnimeSource && currentTitle.isNotBlank()) {
+            kotlinx.coroutines.delay(250L)
             mediaDetails = TMDBHelper.fetchMediaDetails(
                 rawTitle = currentTitle,
                 videoId = currentVideoId,
@@ -135,7 +152,8 @@ fun VideoDetailsSection(
     var rydMetrics by remember(currentVideoId) { mutableStateOf<com.example.extractor.YouTubeVoteMetrics?>(null) }
 
     LaunchedEffect(currentVideoId) {
-        if (currentVideoId.isNotBlank()) {
+        if (currentVideoId.length == 11 && !currentVideoId.contains("/")) {
+            kotlinx.coroutines.delay(250L)
             val metrics = com.example.extractor.ReturnYouTubeDislikeHelper.fetchVotes(currentVideoId)
             if (metrics != null) {
                 rydMetrics = metrics
@@ -360,7 +378,17 @@ fun VideoDetailsSection(
                     .clickable { if (displayChannelName.isNotBlank()) onChannelClick(displayChannelName) },
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val logoUrl = brandInfo.logoUrls.firstOrNull() ?: currentChannelAvatarUrl
+                val logoUrl = (brandInfo.logoUrls.firstOrNull() ?: currentChannelAvatarUrl)?.let {
+                    com.example.extractor.BilibiliProvider.normalizeHttpsUrl(it)
+                }
+                val avatarRequest = remember(logoUrl, context) {
+                    com.example.util.ThumbnailOptimizer.buildThumbnailRequest(
+                        context = context,
+                        url = logoUrl,
+                        crossfadeMillis = 0,
+                        preferCompact = true
+                    )
+                }
                 Box(
                     modifier = Modifier
                         .size(36.dp)
@@ -368,9 +396,9 @@ fun VideoDetailsSection(
                         .background(brandInfo.backgroundColor),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (!logoUrl.isNullOrEmpty()) {
+                    if (avatarRequest != null) {
                         AsyncImage(
-                            model = logoUrl,
+                            model = avatarRequest,
                             contentDescription = displayChannelName,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize()

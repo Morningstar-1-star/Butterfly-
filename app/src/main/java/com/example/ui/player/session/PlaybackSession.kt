@@ -204,6 +204,7 @@ class PlaybackSession(private val appContext: Context) {
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            if (_activeStreamData.value == null || mediaItem == null) return
             queueManager.onMediaItemTransition(mediaItem, reason)
         }
 
@@ -893,6 +894,7 @@ class PlaybackSession(private val appContext: Context) {
         }
         currentLoadedMediaKey = null
         _activeStreamData.value = null
+        queueManager.reset()
         _progressFraction.value = 0f
         _currentPositionMs.value = 0L
         _durationMs.value = 0L
@@ -910,6 +912,7 @@ class PlaybackSession(private val appContext: Context) {
         urlRetryCountMap.clear()
         currentLoadedMediaKey = null
         _activeStreamData.value = null
+        queueManager.reset()
         _isPlaying.value = false
         playerCore?.release()
         playerCore = null

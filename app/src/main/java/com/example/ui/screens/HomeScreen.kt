@@ -527,81 +527,27 @@ fun HomeScreen(
                                             )
                                         }
                                     } else {
-                                        val isCurrentAdultContext = adultContentEnabled || viewModel.isAdultProviderId(activeProviderId)
-                                        val isSingleProviderActive = activeProviderId != "all" && activeProviderId.isNotBlank()
-                                        val showSearchRecsShelf = !isSingleProviderActive && activeCategory == "All" && searchDrivenRecommendations.isNotEmpty() && !latestSearchIntent.isNullOrBlank() && (
-                                            if (isCurrentAdultContext) searchDrivenRecommendations.all { (viewModel.isAdultVideoItem(it) || viewModel.isAdultProviderId(it.providerId)) && !viewModel.isNormalProvider(it.providerId) }
-                                            else searchDrivenRecommendations.all { !viewModel.isAdultVideoItem(it) && !viewModel.isAdultProviderId(it.providerId) }
-                                        )
-
-                                        if (!showSearchRecsShelf) {
-                                            // Unified continuous items list for optimal 120fps scrolling
-                                            items(
-                                                 items = feedList,
-                                                 key = { "${it.providerId}_${it.id}" },
-                                                 contentType = { "video_card" }
-                                             ) { video ->
-                                                 VideoCard(
-                                                     video = video,
-                                                     watchProgressFraction = watchProgressMap[video.id] ?: 0f,
-                                                     showProviderBadge = showThumbnailTags,
-                                                     onClick = { viewModel.playVideo(video) },
-                                                     onPlayNextInQueue = onPlayNextInQueueAction,
-                                                     onAddToQueue = onAddToQueueAction,
-                                                     onSaveToWatchLater = onSaveToWatchLaterAction,
-                                                     onSaveToPlaylist = onSaveToPlaylistAction,
-                                                     onDownload = onDownloadAction,
-                                                     onNotInterested = onNotInterestedAction,
-                                                     onChannelClick = onChannelClickAction,
-                                                     modifier = Modifier.fillMaxWidth()
-                                                 )
-                                             }
-                                        } else {
-                                            val shelfInsertIndex = 2.coerceAtMost(feedList.size)
-                                            items(
-                                                 items = feedList.take(shelfInsertIndex),
-                                                 key = { "${it.providerId}_${it.id}" },
-                                                 contentType = { "video_card" }
-                                             ) { video ->
-                                                 VideoCard(
-                                                     video = video,
-                                                     watchProgressFraction = watchProgressMap[video.id] ?: 0f,
-                                                     showProviderBadge = showThumbnailTags,
-                                                     onClick = { viewModel.playVideo(video) },
-                                                     onPlayNextInQueue = onPlayNextInQueueAction,
-                                                     onAddToQueue = onAddToQueueAction,
-                                                     onSaveToWatchLater = onSaveToWatchLaterAction,
-                                                     onSaveToPlaylist = onSaveToPlaylistAction,
-                                                     onDownload = onDownloadAction,
-                                                     onNotInterested = onNotInterestedAction,
-                                                     onChannelClick = onChannelClickAction,
-                                                     modifier = Modifier.fillMaxWidth()
-                                                 )
-                                             }
-
-                                             if (feedList.size > shelfInsertIndex) {
-                                                 items(
-                                                     items = feedList.drop(shelfInsertIndex),
-                                                     key = { "${it.providerId}_${it.id}" },
-                                                     contentType = { "video_card" }
-                                                 ) { video ->
-                                                     VideoCard(
-                                                         video = video,
-                                                         watchProgressFraction = watchProgressMap[video.id] ?: 0f,
-                                                         showProviderBadge = showThumbnailTags,
-                                                         onClick = { viewModel.playVideo(video) },
-                                                         onPlayNextInQueue = onPlayNextInQueueAction,
-                                                         onAddToQueue = onAddToQueueAction,
-                                                         onSaveToWatchLater = onSaveToWatchLaterAction,
-                                                         onSaveToPlaylist = onSaveToPlaylistAction,
-                                                         onDownload = onDownloadAction,
-                                                         onNotInterested = onNotInterestedAction,
-                                                         onChannelClick = onChannelClickAction,
-                                                         modifier = Modifier.fillMaxWidth()
-                                                     )
-                                                 }
-                                             }
-                                        }
+                                        // Unified continuous items list for optimal 120fps scrolling
+                                        items(
+                                             items = feedList,
+                                             key = { "${it.providerId}_${it.id}" },
+                                             contentType = { "video_card" }
+                                         ) { video ->
+                                             VideoCard(
+                                                 video = video,
+                                                 watchProgressFraction = watchProgressMap[video.id] ?: 0f,
+                                                 showProviderBadge = showThumbnailTags,
+                                                 onClick = { viewModel.playVideo(video) },
+                                                 onPlayNextInQueue = onPlayNextInQueueAction,
+                                                 onAddToQueue = onAddToQueueAction,
+                                                 onSaveToWatchLater = onSaveToWatchLaterAction,
+                                                 onSaveToPlaylist = onSaveToPlaylistAction,
+                                                 onDownload = onDownloadAction,
+                                                 onNotInterested = onNotInterestedAction,
+                                                 onChannelClick = onChannelClickAction,
+                                                 modifier = Modifier.fillMaxWidth()
+                                             )
+                                         }
 
                                         if (isLoadingMore) {
                                             item {

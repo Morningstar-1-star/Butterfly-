@@ -32,6 +32,19 @@ object ThumbnailOptimizer {
         var trimmed = rawUrl.trim()
         if (trimmed.startsWith("//")) {
             trimmed = "https:$trimmed"
+        } else if (trimmed.startsWith("http://", ignoreCase = true)) {
+            val lower = trimmed.lowercase()
+            if (lower.contains("hdslb.com") ||
+                lower.contains("biliimg.com") ||
+                lower.contains("bilibili.com") ||
+                lower.contains("qpic.cn") ||
+                lower.contains("gtimg.cn") ||
+                lower.contains("ytimg.com") ||
+                lower.contains("ggpht.com") ||
+                lower.contains("googleusercontent.com")
+            ) {
+                trimmed = "https://" + trimmed.substring(7)
+            }
         }
 
         // 1. YouTube thumbnails: Deliver crisp thumbnails with zero HTTP 404 fallback delay
@@ -169,14 +182,28 @@ object ThumbnailOptimizer {
             .memoryCachePolicy(CachePolicy.ENABLED)
             .diskCachePolicy(CachePolicy.ENABLED)
             .networkCachePolicy(CachePolicy.ENABLED)
-            .allowHardware(true) // Native GPU Hardware Bitmaps: Zero blur, ultra-fast GPU compositing
-            .crossfade(crossfadeMillis)
+            .allowHardware(true)
+            .allowRgb565(preferCompact)
+            .apply {
+                if (crossfadeMillis > 0) crossfade(crossfadeMillis) else crossfade(false)
+                if (preferCompact) {
+                    size(640, 360)
+                    precision(coil.size.Precision.INEXACT)
+                }
+            }
             .dispatcher(Dispatchers.IO)
             .setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
             .setHeader("Accept", "image/webp,image/jpeg,image/png,image/*;q=0.8")
 
         // Domain-specific anti-hotlinking headers
         when {
+            lowerUrl.contains("hdslb.com") || lowerUrl.contains("biliimg.com") || lowerUrl.contains("bilibili.com") -> {
+                builder.setHeader("Referer", "https://www.bilibili.com/")
+                builder.setHeader("Origin", "https://www.bilibili.com")
+            }
+            lowerUrl.contains("qpic.cn") || lowerUrl.contains("gtimg.cn") || lowerUrl.contains("v.qq.com") -> {
+                builder.setHeader("Referer", "https://v.qq.com/")
+            }
             lowerUrl.contains("externulls.com") || lowerUrl.contains("beeg.com") || lowerUrl.contains("ahacdn.me") -> {
                 builder.setHeader("Referer", "https://beeg.com/")
                 builder.setHeader("Origin", "https://beeg.com")

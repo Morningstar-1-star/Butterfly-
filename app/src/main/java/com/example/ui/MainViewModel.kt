@@ -1687,6 +1687,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
             }
+            // Defer heavy disk DB writes, remote sync and recommendation recalculations
+            // by 400ms so they do not compete with the video player enter transition and first frame decoding
+            delay(400L)
             val historyEntity = WatchHistoryEntity(
                 videoId = video.id,
                 title = video.title ?: video.id,
@@ -5755,7 +5758,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // Record in watch history for pattern understanding & recommendation engine
         val currentMatch = initialItem
-            ?: (_searchResults.value + _trendingVideos.value + _recommendedVideos.value + _subscriptionVideos.value + _searchDrivenRecommendations.value + _channelVideos.value + _watchHistory.value + _playerRecommendations.value + _watchLaterList.value + _likedVideos.value + _playbackQueue.value).firstOrNull { it.id == cleanIdOrUrl }
+            ?: sequenceOf(
+                _searchResults.value,
+                _trendingVideos.value,
+                _recommendedVideos.value,
+                _subscriptionVideos.value,
+                _searchDrivenRecommendations.value,
+                _channelVideos.value,
+                _watchHistory.value,
+                _playerRecommendations.value,
+                _watchLaterList.value,
+                _likedVideos.value,
+                _playbackQueue.value
+            ).flatten().firstOrNull { it.id == cleanIdOrUrl }
         if (currentMatch?.uploaderUrl?.isNotBlank() == true) {
             com.example.extractor.SextbProvider.registerPageUrl(cleanIdOrUrl, currentMatch.uploaderUrl!!)
         }
@@ -6046,16 +6061,46 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     unifiedPlayback.setActiveCandidate(null)
 
                     val streamThumb = result.streamData.thumbnailUrl?.takeIf { it.isNotBlank() && !it.contains("blank.gif") && !it.contains("loading.gif") }
-                    val streamTitle = result.streamData.title.takeIf { it.isNotBlank() && !it.equals("XVideos", ignoreCase = true) && !it.equals("Video", ignoreCase = true) }
-                    val streamChannel = result.streamData.channelName.takeIf { it.isNotBlank() && !it.equals("XVideos", ignoreCase = true) && !it.equals("Video", ignoreCase = true) }
-                    if (streamThumb != null || streamTitle != null || streamChannel != null || !result.streamData.channelAvatarUrl.isNullOrBlank()) {
-                        _activeVideoItem.value = _activeVideoItem.value?.copy(
-                            title = streamTitle ?: _activeVideoItem.value?.title ?: "",
-                            uploaderName = streamChannel ?: _activeVideoItem.value?.uploaderName ?: "XVideos",
-                            thumbnailUrl = streamThumb ?: _activeVideoItem.value?.thumbnailUrl,
-                            uploaderAvatarUrl = result.streamData.channelAvatarUrl ?: _activeVideoItem.value?.uploaderAvatarUrl
-                        )
+                    val currentActive = _activeVideoItem.value
+
+                    fun isPlaceholderTitle(t: String?): Boolean {
+                        if (t.isNullOrBlank()) return true
+                        val lower = t.trim().lowercase()
+                        return lower == "bilibili" || lower == "bilibili video" || lower == "video" ||
+                                lower == "youtube video" || lower == "xvideos" || lower.startsWith("video_")
                     }
+
+                    fun isPlaceholderChannel(c: String?): Boolean {
+                        if (c.isNullOrBlank()) return true
+                        val lower = c.trim().lowercase()
+                        return lower == "bilibili" || lower == "bilibili video" || lower == "video" ||
+                                lower == "youtube" || lower == "xvideos"
+                    }
+
+                    val incomingTitle = result.streamData.title.takeIf { !isPlaceholderTitle(it) }
+                    val incomingChannel = result.streamData.channelName.takeIf { !isPlaceholderChannel(it) }
+
+                    val finalTitle = if (currentActive != null && !isPlaceholderTitle(currentActive.title)) {
+                        if (incomingTitle != null && incomingTitle.length > currentActive.title.length) incomingTitle else currentActive.title
+                    } else {
+                        incomingTitle ?: currentActive?.title ?: ""
+                    }
+
+                    val finalChannel = if (currentActive != null && !isPlaceholderChannel(currentActive.uploaderName)) {
+                        currentActive.uploaderName
+                    } else {
+                        incomingChannel ?: currentActive?.uploaderName ?: result.streamData.channelName.ifBlank { "Channel" }
+                    }
+
+                    val finalAvatar = result.streamData.channelAvatarUrl?.takeIf { it.isNotBlank() } ?: currentActive?.uploaderAvatarUrl
+                    val finalThumb = streamThumb ?: currentActive?.thumbnailUrl
+
+                    _activeVideoItem.value = _activeVideoItem.value?.copy(
+                        title = finalTitle,
+                        uploaderName = finalChannel,
+                        thumbnailUrl = finalThumb,
+                        uploaderAvatarUrl = finalAvatar
+                    )
                     if (result.streamData.relatedVideos.isNotEmpty()) {
                         val isAdultPlaying = isAdultProviderId(targetProviderId) || isAdultProviderId(result.streamData.providerId) || isAdultSearchQuery(result.streamData.title)
                         _playerRecommendations.value = result.streamData.relatedVideos.filter {

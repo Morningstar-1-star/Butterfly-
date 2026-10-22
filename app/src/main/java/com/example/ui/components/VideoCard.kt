@@ -213,16 +213,12 @@ fun VideoCard(
     }
 
     val thumbnailImageRequest = remember(activeImageUrl, context) {
-        if (activeImageUrl.isNullOrBlank()) null else {
-            ImageRequest.Builder(context)
-                .data(activeImageUrl)
-                .crossfade(false)
-                .allowHardware(true)
-                .allowRgb565(true)
-                .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
-                .diskCachePolicy(coil.request.CachePolicy.ENABLED)
-                .build()
-        }
+        com.example.util.ThumbnailOptimizer.buildThumbnailRequest(
+            context = context,
+            url = activeImageUrl,
+            crossfadeMillis = 0,
+            preferCompact = true
+        )
     }
 
     Column(
@@ -499,11 +495,17 @@ fun VideoCard(
                 contentAlignment = Alignment.Center
             ) {
                 if (brandInfo.logoUrls.isNotEmpty()) {
-                    val primaryUrl = brandInfo.logoUrls.first()
+                    val primaryUrl = com.example.extractor.BilibiliProvider.normalizeHttpsUrl(brandInfo.logoUrls.first())
                     val logoImageRequest = remember(primaryUrl, context) {
+                        val lowerLogo = primaryUrl.lowercase()
                         ImageRequest.Builder(context)
                             .data(primaryUrl)
-                            .setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                            .setHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                            .apply {
+                                if (lowerLogo.contains("hdslb.com") || lowerLogo.contains("biliimg.com") || lowerLogo.contains("bilibili.com")) {
+                                    setHeader("Referer", "https://www.bilibili.com/")
+                                }
+                            }
                             .size(96, 96)
                             .precision(coil.size.Precision.INEXACT)
                             .allowHardware(true)

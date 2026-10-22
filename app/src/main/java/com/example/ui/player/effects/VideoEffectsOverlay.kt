@@ -51,12 +51,11 @@ fun VideoEffectsOverlay(
                 )
             }
 
-            // Night Warm Shield (Orange amber tint for eye comfort)
+            // Night Warm Shield (Orange amber warm tint for eye comfort)
             if (config.nightShieldWarmth > 0.01f) {
                 drawRect(
-                    color = Color(0xFFFF9800).copy(alpha = (config.nightShieldWarmth * 0.45f).coerceIn(0f, 0.35f)),
-                    size = size,
-                    blendMode = BlendMode.Color
+                    color = Color(0xFFFF9800).copy(alpha = (config.nightShieldWarmth * 0.25f).coerceIn(0f, 0.25f)),
+                    size = size
                 )
             }
         }

@@ -5,16 +5,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -27,12 +24,9 @@ fun VideoEffectsContent(
     modifier: Modifier = Modifier
 ) {
     val config by effectsManager.config.collectAsState()
-    val scrollState = rememberScrollState()
 
     Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .verticalScroll(scrollState),
+        modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // Presets Header & Horizontal Row
@@ -68,8 +62,8 @@ fun VideoEffectsContent(
                 val isSelected = config.activePreset == preset
                 Surface(
                     shape = RoundedCornerShape(20.dp),
-                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    border = if (isSelected) androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null,
+                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Black,
+                    border = if (isSelected) androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
                     modifier = Modifier.clickable { effectsManager.applyPreset(preset) }
                 ) {
                     Text(
@@ -83,10 +77,10 @@ fun VideoEffectsContent(
             }
         }
 
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+        HorizontalDivider(color = Color.White.copy(alpha = 0.12f))
 
         // Custom Sliders
-        // 1. Brightness
+        // 1. Brightness (-0.4f to 0.4f)
         EffectSliderItem(
             icon = Icons.Default.Brightness6,
             title = "Brightness",
@@ -96,7 +90,7 @@ fun VideoEffectsContent(
             onValueChange = { effectsManager.setBrightness(it) }
         )
 
-        // 2. Contrast
+        // 2. Contrast (0.6f to 1.6f)
         EffectSliderItem(
             icon = Icons.Default.Contrast,
             title = "Contrast",
@@ -106,7 +100,7 @@ fun VideoEffectsContent(
             onValueChange = { effectsManager.setContrast(it) }
         )
 
-        // 3. Saturation / Color Vibrancy
+        // 3. Saturation / Color Vibrancy (0.0f to 2.0f)
         EffectSliderItem(
             icon = Icons.Default.Palette,
             title = "Saturation / Vibrancy",
@@ -116,7 +110,7 @@ fun VideoEffectsContent(
             onValueChange = { effectsManager.setSaturation(it) }
         )
 
-        // 4. AMOLED Deep Black (Gamma Black Enhancement)
+        // 4. AMOLED Deep Black (0.0f to 0.5f)
         EffectSliderItem(
             icon = Icons.Default.DarkMode,
             title = "AMOLED Deep Black",
@@ -126,7 +120,7 @@ fun VideoEffectsContent(
             onValueChange = { effectsManager.setAmoledBlackLevel(it) }
         )
 
-        // 5. Night Warm Shield (Blue light filter)
+        // 5. Night Warm Shield (0.0f to 0.6f)
         EffectSliderItem(
             icon = Icons.Default.WbIncandescent,
             title = "Night Warm Shield",
@@ -147,9 +141,12 @@ private fun EffectSliderItem(
     valueRange: ClosedFloatingPointRange<Float>,
     onValueChange: (Float) -> Unit
 ) {
+    val safeValue = if (value.isNaN()) valueRange.start else value.coerceIn(valueRange.start, valueRange.endInclusive)
+
     Surface(
         shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        color = Color(0xFF0A0A0E),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
@@ -183,12 +180,10 @@ private fun EffectSliderItem(
                 )
             }
             Slider(
-                value = value,
+                value = safeValue,
                 onValueChange = onValueChange,
                 valueRange = valueRange,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(24.dp)
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }

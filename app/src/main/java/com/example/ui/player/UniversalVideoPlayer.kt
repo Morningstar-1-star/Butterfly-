@@ -2648,8 +2648,9 @@ fun UniversalVideoPlayer(
             } else {
                 ModalBottomSheet(
                     onDismissRequest = dismissSettingsAction,
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    contentColor = MaterialTheme.colorScheme.onSurface
+                    containerColor = Color.Black,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    tonalElevation = 0.dp
                 ) {
                     Column(
                         modifier = Modifier

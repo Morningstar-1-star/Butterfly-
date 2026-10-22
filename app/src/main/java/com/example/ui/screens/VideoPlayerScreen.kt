@@ -442,8 +442,9 @@ fun VideoPlayerScreen(
         }
     }
 
-    LaunchedEffect(currentStreamData?.videoId, activeVideoId, shouldRenderDetails) {
+    LaunchedEffect( currentStreamData?.videoId, activeVideoId, shouldRenderDetails) {
         if (!shouldRenderDetails) return@LaunchedEffect
+        kotlinx.coroutines.delay(180L)
         viewModel.loadMorePlayerRecommendations(currentStreamData)
     }
 
@@ -451,6 +452,7 @@ fun VideoPlayerScreen(
         if (!shouldRenderDetails) return@LaunchedEffect
         val vid = activeVideoId
         if (!vid.isNullOrBlank()) {
+            kotlinx.coroutines.delay(150L)
             val pId = providerId ?: currentStreamData?.providerId ?: "youtube"
             val title = displayTitle.takeIf { it.isNotBlank() && it != "Loading video..." }
             viewModel.loadVideoComments(
@@ -479,9 +481,13 @@ fun VideoPlayerScreen(
         }
     }
 
-    LaunchedEffect(displayTitle, activeVideoId, shouldRenderDetails, playingTmdbId, playingImdbId) {
+    LaunchedEffect(displayTitle, activeVideoId, shouldRenderDetails, playingTmdbId, playingImdbId, providerId) {
         if (!shouldRenderDetails) return@LaunchedEffect
-        if (displayTitle.isNotBlank() && displayTitle != "Loading video...") {
+        val pid = (providerId ?: currentStreamData?.providerId ?: "").lowercase()
+        val isUnifiedMediaSource = pid in setOf("tmdb", "tmdb_embed", "torrent", "vega", "vidsrc", "cinematv", "movie", "supjav", "missav", "javhd", "123av", "javtiful", "sextb") ||
+            playingTmdbId != null || playingImdbId != null
+        if (isUnifiedMediaSource && displayTitle.isNotBlank() && displayTitle != "Loading video...") {
+            kotlinx.coroutines.delay(250L)
             val cleanTitle = displayTitle.replace(Regex("""\s*\(\d{4}\).*"""), "").trim()
             viewModel.resolveUnifiedSourcesForMedia(
                 com.example.model.MediaIdentity(
@@ -615,14 +621,14 @@ fun VideoPlayerScreen(
                 viewModel.playNextInQueue()
             } else if (relatedContent.isNotEmpty()) {
                 val nextVid = relatedContent.firstOrNull { it.id != activeVideoId } ?: relatedContent.first()
-                viewModel.playVideo(nextVid.id, nextVid.providerId ?: "youtube")
+                viewModel.playVideo(nextVid)
             } else if (landscapeVideos.isNotEmpty()) {
                 val nextVid = landscapeVideos.firstOrNull { it.id != activeVideoId } ?: landscapeVideos.first()
-                viewModel.playVideo(nextVid.id, nextVid.providerId ?: "youtube")
+                viewModel.playVideo(nextVid)
             } else if (trendingVideos.isNotEmpty()) {
                 val nextVid = trendingVideos.firstOrNull { it.id != activeVideoId }
                 if (nextVid != null) {
-                    viewModel.playVideo(nextVid.id, nextVid.providerId ?: "youtube")
+                    viewModel.playVideo(nextVid)
                 }
             } else {
                 val curMs = GlobalPlayerManager.currentPositionMs.value
@@ -639,7 +645,7 @@ fun VideoPlayerScreen(
             val history = viewModel.watchHistory.value
             val prevItem = history.getOrNull(1)
             if (prevItem != null && prevItem.id != activeVideoId) {
-                viewModel.playVideo(prevItem.id, prevItem.providerId)
+                viewModel.playVideo(prevItem)
             } else {
                 GlobalPlayerManager.seekTo(0L)
             }
@@ -802,7 +808,7 @@ fun VideoPlayerScreen(
                 currentVideoId = activeVideoId,
                 currentChannelName = currentStreamData?.channelName ?: currentVideoItem?.uploaderName,
                 onVideoClick = { video ->
-                    viewModel.playVideo(video.id, video.providerId)
+                    viewModel.playVideo(video)
                 },
                 onDismiss = { showLandscapeRelatedDrawer = false }
             )
@@ -1413,7 +1419,7 @@ fun VideoPlayerScreen(
                                             .fillMaxWidth()
                                             .padding(horizontal = 16.dp, vertical = 6.dp)
                                             .clickable {
-                                                viewModel.playVideo(topFullVideo.id, topFullVideo.providerId)
+                                                viewModel.playVideo(topFullVideo)
                                             }
                                     ) {
                                         Row(
@@ -1458,7 +1464,7 @@ fun VideoPlayerScreen(
                                             }
                                             Spacer(modifier = Modifier.width(8.dp))
                                             FilledTonalButton(
-                                                onClick = { viewModel.playVideo(topFullVideo.id, topFullVideo.providerId) },
+                                                onClick = { viewModel.playVideo(topFullVideo) },
                                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                                                 shape = RoundedCornerShape(10.dp)
                                             ) {
@@ -1484,7 +1490,7 @@ fun VideoPlayerScreen(
                                             video = video,
                                             showProviderBadge = showThumbnailTags,
                                             onClick = {
-                                                viewModel.playVideo(video.id, video.providerId)
+                                                viewModel.playVideo(video)
                                             },
                                             onChannelClick = { channelName -> viewModel.openChannel(channelName) },
                                             onNotInterested = { v -> viewModel.markNotInterested(v) },

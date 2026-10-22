@@ -390,8 +390,9 @@ object CommentExtractorHelper {
     private fun fetchBilibiliComments(biliId: String): List<VideoComment> {
         try {
             val cleanInput = biliId.trim()
+            val biliCookie = com.example.extractor.BilibiliProvider.getBilibiliCookie()
             // Extract AID or BVID
-            var bvid = when {
+            val bvid = when {
                 cleanInput.contains("BV", ignoreCase = true) -> {
                     val idx = cleanInput.indexOf("BV", ignoreCase = true)
                     cleanInput.substring(idx).substringBefore("/").substringBefore("?").substringBefore("&")
@@ -408,29 +409,43 @@ object CommentExtractorHelper {
                 else -> ""
             }
 
-            // If we have bvid but not aid, resolve aid from Bilibili view API
             if (aid.isBlank() && bvid.isNotBlank()) {
-                try {
-                    val viewUrl = "https://api.bilibili.com/x/web-interface/view?bvid=$bvid"
-                    val viewReq = Request.Builder()
-                        .url(viewUrl)
-                        .header("Referer", "https://www.bilibili.com/")
-                        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-                        .build()
-                    client.newCall(viewReq).execute().use { resp ->
-                        if (resp.isSuccessful) {
-                            val respStr = resp.body?.string()
-                            if (!respStr.isNullOrBlank()) {
-                                val viewJson = JSONObject(respStr)
-                                val resolvedAid = viewJson.optJSONObject("data")?.optLong("aid", 0L) ?: 0L
-                                if (resolvedAid > 0L) {
-                                    aid = resolvedAid.toString()
+                val cachedAid = com.example.extractor.BilibiliProvider.getCachedAid(bvid)
+                if (cachedAid != null && cachedAid > 0L) {
+                    aid = cachedAid.toString()
+                }
+            }
+
+            // If we have bvid but not aid, resolve aid from Bilibili view API with Cookie header
+            if (aid.isBlank() && bvid.isNotBlank()) {
+                val viewUrls = listOf(
+                    "https://api.bilibili.com/x/web-interface/view?bvid=$bvid",
+                    "https://app.bilibili.com/x/v2/view?bvid=$bvid"
+                )
+                for (viewUrl in viewUrls) {
+                    if (aid.isNotBlank()) break
+                    try {
+                        val viewReq = Request.Builder()
+                            .url(viewUrl)
+                            .header("Referer", "https://www.bilibili.com/")
+                            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                            .header("Cookie", biliCookie)
+                            .build()
+                        client.newCall(viewReq).execute().use { resp ->
+                            if (resp.isSuccessful) {
+                                val respStr = resp.body?.string()
+                                if (!respStr.isNullOrBlank()) {
+                                    val viewJson = JSONObject(respStr)
+                                    val resolvedAid = viewJson.optJSONObject("data")?.optLong("aid", 0L) ?: 0L
+                                    if (resolvedAid > 0L) {
+                                        aid = resolvedAid.toString()
+                                    }
                                 }
                             }
                         }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Error resolving aid from bvid for comments: ${e.message}")
                     }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Error resolving aid from bvid for comments: ${e.message}")
                 }
             }
 
@@ -438,16 +453,18 @@ object CommentExtractorHelper {
             if (aid.isNotBlank()) {
                 urlsToTry.add("https://api.bilibili.com/x/v2/reply?type=1&sort=2&oid=$aid&pn=1&ps=30")
                 urlsToTry.add("https://api.bilibili.com/x/v2/reply/main?type=1&oid=$aid&next=0&mode=3")
+                urlsToTry.add("https://api.bilibili.com/x/v2/reply?type=1&sort=1&oid=$aid&pn=1&ps=30")
             }
             if (bvid.isNotBlank()) {
-                urlsToTry.add("https://api.bilibili.com/x/v2/reply?type=1&sort=2&oid=0&bvid=$bvid")
+                urlsToTry.add("https://api.bilibili.com/x/v2/reply?type=1&sort=2&oid=$bvid")
             }
 
             for (url in urlsToTry) {
                 val request = Request.Builder()
                     .url(url)
                     .header("Referer", "https://www.bilibili.com/")
-                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                    .header("Cookie", biliCookie)
                     .build()
 
                 val result = client.newCall(request).execute().use { response ->
@@ -455,19 +472,41 @@ object CommentExtractorHelper {
                     val body = response.body?.string() ?: return@use emptyList<VideoComment>()
                     val json = JSONObject(body)
                     val data = json.optJSONObject("data") ?: return@use emptyList<VideoComment>()
-                    val replies = data.optJSONArray("replies") ?: return@use emptyList<VideoComment>()
+                    val hots = data.optJSONArray("hots")
+                    val topReplies = data.optJSONArray("top_replies")
+                    val replies = data.optJSONArray("replies")
 
+                    val combinedObjects = mutableListOf<JSONObject>()
+                    if (topReplies != null) {
+                        for (i in 0 until topReplies.length()) {
+                            topReplies.optJSONObject(i)?.let { combinedObjects.add(it) }
+                        }
+                    }
+                    if (hots != null) {
+                        for (i in 0 until hots.length()) {
+                            hots.optJSONObject(i)?.let { combinedObjects.add(it) }
+                        }
+                    }
+                    if (replies != null) {
+                        for (i in 0 until replies.length()) {
+                            replies.optJSONObject(i)?.let { combinedObjects.add(it) }
+                        }
+                    }
+                    if (combinedObjects.isEmpty()) return@use emptyList<VideoComment>()
+
+                    val seenRpids = mutableSetOf<String>()
                     val comments = mutableListOf<VideoComment>()
-                    for (i in 0 until replies.length().coerceAtMost(50)) {
-                        val r = replies.getJSONObject(i)
+                    for ((i, r) in combinedObjects.withIndex()) {
+                        if (comments.size >= 50) break
+                        val rpid = r.optString("rpid_str", r.optString("rpid", "bili_cmt_$i"))
+                        if (!seenRpids.add(rpid)) continue
+
                         val member = r.optJSONObject("member")
                         val content = r.optJSONObject("content")
 
                         val uname = member?.optString("uname", "Bilibili User") ?: "Bilibili User"
-                        var avatar = member?.optString("avatar", null)
-                        if (!avatar.isNullOrBlank() && avatar.startsWith("//")) {
-                            avatar = "https:$avatar"
-                        }
+                        val rawAvatar = member?.optString("avatar", null)
+                        val avatar = com.example.extractor.BilibiliProvider.normalizeHttpsUrl(rawAvatar).ifBlank { null }
                         val msg = content?.optString("message", "") ?: ""
                         if (msg.isBlank()) continue
 
@@ -478,7 +517,7 @@ object CommentExtractorHelper {
 
                         comments.add(
                             VideoComment(
-                                id = r.optString("rpid", "bili_cmt_$i"),
+                                id = rpid,
                                 authorName = uname,
                                 authorAvatarUrl = avatar,
                                 commentText = msg,

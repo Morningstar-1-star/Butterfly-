@@ -53,8 +53,9 @@ fun AudioEnhancementSheet(
     ModalBottomSheet(
         onDismissRequest = onDismissRequest,
         shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
-        containerColor = Color(0xFF13131A),
+        containerColor = Color.Black,
         contentColor = Color.White,
+        tonalElevation = 0.dp,
         modifier = modifier
     ) {
         Column(
@@ -141,8 +142,9 @@ fun AudioEnhancementSheet(
             // LIVE METERS BAR
             Surface(
                 shape = RoundedCornerShape(12.dp),
-                color = Color(0xFF1B1B26),
-                border = BorderStroke(1.dp, Color(0xFF2E2E3E)),
+                color = Color(0xFF070709),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+                tonalElevation = 0.dp,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -184,7 +186,7 @@ fun AudioEnhancementSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF1A1A24))
+                    .background(Color.Black)
                     .padding(3.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
@@ -277,7 +279,7 @@ private fun EqualizerSection(config: AudioEnhancementConfig) {
                         Surface(
                             onClick = { AudioEnhancementEngine.setEqPreset(preset) },
                             shape = RoundedCornerShape(8.dp),
-                            color = if (isSelected) Color(0xFFB388FF).copy(alpha = 0.25f) else Color(0xFF1E1E28),
+                            color = if (isSelected) Color(0xFFB388FF).copy(alpha = 0.25f) else Color(0xFF0A0A10),
                             border = if (isSelected) BorderStroke(1.2.dp, Color(0xFFB388FF)) else BorderStroke(1.dp, Color.White.copy(alpha = 0.07f)),
                             modifier = Modifier
                                 .weight(1f)
@@ -311,8 +313,8 @@ private fun EqualizerSection(config: AudioEnhancementConfig) {
         // Real-time EQ Frequency Response Curve Visualizer
         Card(
             shape = RoundedCornerShape(14.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF181822)),
-            border = BorderStroke(1.dp, Color(0xFF2A2A38)),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF08080C)),
+            border = BorderStroke(1.dp, Color(0xFF181822)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
@@ -351,8 +353,8 @@ private fun EqualizerSection(config: AudioEnhancementConfig) {
         // 10-Band Graphic Sliders
         Card(
             shape = RoundedCornerShape(14.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF181822)),
-            border = BorderStroke(1.dp, Color(0xFF2A2A38)),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF08080C)),
+            border = BorderStroke(1.dp, Color(0xFF181822)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
@@ -383,8 +385,8 @@ private fun EqualizerSection(config: AudioEnhancementConfig) {
         // Acoustic Enhancers: Bass Boost, Treble Boost, 3D Surround Virtualizer
         Card(
             shape = RoundedCornerShape(14.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF181822)),
-            border = BorderStroke(1.dp, Color(0xFF2A2A38)),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF08080C)),
+            border = BorderStroke(1.dp, Color(0xFF181822)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
@@ -433,7 +435,7 @@ private fun EqualizerSection(config: AudioEnhancementConfig) {
                         colors = SliderDefaults.colors(
                             thumbColor = Color(0xFF00E5FF),
                             activeTrackColor = Color(0xFF00E5FF),
-                            inactiveTrackColor = Color(0xFF2A2A38)
+                            inactiveTrackColor = Color(0xFF181822)
                         )
                     )
                 }
@@ -473,7 +475,7 @@ private fun EqualizerSection(config: AudioEnhancementConfig) {
                         colors = SliderDefaults.colors(
                             thumbColor = Color(0xFFB388FF),
                             activeTrackColor = Color(0xFFB388FF),
-                            inactiveTrackColor = Color(0xFF2A2A38)
+                            inactiveTrackColor = Color(0xFF181822)
                         )
                     )
                 }
@@ -513,7 +515,7 @@ private fun EqualizerSection(config: AudioEnhancementConfig) {
                         colors = SliderDefaults.colors(
                             thumbColor = Color(0xFF00E676),
                             activeTrackColor = Color(0xFF00E676),
-                            inactiveTrackColor = Color(0xFF2A2A38)
+                            inactiveTrackColor = Color(0xFF181822)
                         )
                     )
                 }
@@ -648,7 +650,7 @@ private fun EqBandSliderRow(
             colors = SliderDefaults.colors(
                 thumbColor = if (gainDb != 0f) Color(0xFFB388FF) else Color.White,
                 activeTrackColor = Color(0xFFB388FF),
-                inactiveTrackColor = Color(0xFF2A2A38)
+                inactiveTrackColor = Color(0xFF181822)
             ),
             modifier = Modifier.weight(1f)
         )
@@ -674,8 +676,8 @@ private fun VoiceClaritySection(config: AudioEnhancementConfig) {
         // Voice Stabilizer & Leveler
         Card(
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF181822)),
-            border = BorderStroke(1.dp, Color(0xFF2A2A38)),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF08080C)),
+            border = BorderStroke(1.dp, Color(0xFF181822)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
@@ -754,8 +756,8 @@ private fun VoiceClaritySection(config: AudioEnhancementConfig) {
         // Dialogue Boost & Speech Clarity
         Card(
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF181822)),
-            border = BorderStroke(1.dp, Color(0xFF2A2A38)),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF08080C)),
+            border = BorderStroke(1.dp, Color(0xFF181822)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
@@ -780,7 +782,7 @@ private fun VoiceClaritySection(config: AudioEnhancementConfig) {
                         val selected = config.dialogueBoostMode == mode
                         Surface(
                             shape = RoundedCornerShape(10.dp),
-                            color = if (selected) Color(0xFF00E5FF) else Color(0xFF252533),
+                            color = if (selected) Color(0xFF00E5FF) else Color(0xFF12121A),
                             modifier = Modifier
                                 .weight(1f)
                                 .clickable { AudioEnhancementEngine.setDialogueBoostMode(mode) }
@@ -810,8 +812,8 @@ private fun DynamicsSection(config: AudioEnhancementConfig, meters: AudioMeterSt
         // Loudness Normalization
         Card(
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF181822)),
-            border = BorderStroke(1.dp, Color(0xFF2A2A38)),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF08080C)),
+            border = BorderStroke(1.dp, Color(0xFF181822)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
@@ -870,8 +872,8 @@ private fun DynamicsSection(config: AudioEnhancementConfig, meters: AudioMeterSt
         // Dynamic Range Compression (DRC)
         Card(
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF181822)),
-            border = BorderStroke(1.dp, Color(0xFF2A2A38)),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF08080C)),
+            border = BorderStroke(1.dp, Color(0xFF181822)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
@@ -896,7 +898,7 @@ private fun DynamicsSection(config: AudioEnhancementConfig, meters: AudioMeterSt
                         val selected = config.drcMode == mode
                         Surface(
                             shape = RoundedCornerShape(10.dp),
-                            color = if (selected) Color(0xFFB388FF) else Color(0xFF252533),
+                            color = if (selected) Color(0xFFB388FF) else Color(0xFF12121A),
                             modifier = Modifier
                                 .weight(1f)
                                 .clickable { AudioEnhancementEngine.setDrcMode(mode) }
@@ -918,8 +920,8 @@ private fun DynamicsSection(config: AudioEnhancementConfig, meters: AudioMeterSt
         // Channel Downmixing Mode
         Card(
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF181822)),
-            border = BorderStroke(1.dp, Color(0xFF2A2A38)),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF08080C)),
+            border = BorderStroke(1.dp, Color(0xFF181822)),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(14.dp)) {
@@ -1040,7 +1042,7 @@ private fun PresetCardButton(
     val selected = selectedPreset == preset
     Surface(
         shape = RoundedCornerShape(12.dp),
-        color = if (selected) Color(0xFFB388FF).copy(alpha = 0.25f) else Color(0xFF1E1E28),
+        color = if (selected) Color(0xFFB388FF).copy(alpha = 0.25f) else Color(0xFF0A0A10),
         border = BorderStroke(
             1.dp,
             if (selected) Color(0xFFB388FF) else Color(0xFF2A2A3A)

@@ -24,51 +24,51 @@ object AudioEnhancementEngine {
 
     fun setPreset(preset: AudioPreset) {
         val newConfig = AudioPresets.getPresetConfig(preset, _config.value)
-        _config.value = newConfig
+        _config.value = newConfig.copy(isEnabled = true)
     }
 
     fun updateConfig(update: (AudioEnhancementConfig) -> AudioEnhancementConfig) {
-        _config.value = update(_config.value).copy(selectedPreset = AudioPreset.CUSTOM)
+        _config.value = update(_config.value).copy(isEnabled = true, selectedPreset = AudioPreset.CUSTOM)
     }
 
     fun setVoiceStabilizerEnabled(enabled: Boolean) {
-        _config.value = _config.value.copy(voiceStabilizerEnabled = enabled)
+        _config.value = _config.value.copy(isEnabled = true, voiceStabilizerEnabled = enabled)
     }
 
     fun setWhisperBoostLimitDb(db: Float) {
-        _config.value = _config.value.copy(whisperBoostLimitDb = db)
+        _config.value = _config.value.copy(isEnabled = true, whisperBoostLimitDb = db)
     }
 
     fun setExplosionClampLimitDb(db: Float) {
-        _config.value = _config.value.copy(explosionClampLimitDb = db)
+        _config.value = _config.value.copy(isEnabled = true, explosionClampLimitDb = db)
     }
 
     fun setLoudnessNormalizationEnabled(enabled: Boolean) {
-        _config.value = _config.value.copy(loudnessNormalizationEnabled = enabled)
+        _config.value = _config.value.copy(isEnabled = true, loudnessNormalizationEnabled = enabled)
     }
 
     fun setTargetLufs(lufs: Float) {
-        _config.value = _config.value.copy(targetLufs = lufs)
+        _config.value = _config.value.copy(isEnabled = true, targetLufs = lufs)
     }
 
     fun setDrcMode(mode: DynamicRangeCompressionMode) {
-        _config.value = _config.value.copy(drcMode = mode)
+        _config.value = _config.value.copy(isEnabled = true, drcMode = mode)
     }
 
     fun setDialogueBoostMode(mode: DialogueBoostMode) {
-        _config.value = _config.value.copy(dialogueBoostMode = mode)
+        _config.value = _config.value.copy(isEnabled = true, dialogueBoostMode = mode)
     }
 
     fun setDialogueBoostPercentage(pct: Float) {
-        _config.value = _config.value.copy(dialogueBoostPercentage = pct)
+        _config.value = _config.value.copy(isEnabled = true, dialogueBoostPercentage = pct)
     }
 
     fun setBassGainDb(db: Float) {
-        _config.value = _config.value.copy(bassGainDb = db)
+        _config.value = _config.value.copy(isEnabled = true, bassGainDb = db)
     }
 
     fun setTrebleGainDb(db: Float) {
-        _config.value = _config.value.copy(trebleGainDb = db)
+        _config.value = _config.value.copy(isEnabled = true, trebleGainDb = db)
     }
 
     fun setEqBand(index: Int, gainDb: Float) {
@@ -76,6 +76,7 @@ object AudioEnhancementEngine {
             val newBands = _config.value.eq10BandsDb.clone()
             newBands[index] = gainDb
             _config.value = _config.value.copy(
+                isEnabled = true,
                 eq10BandsDb = newBands,
                 eqPreset = EqualizerPreset.CUSTOM
             )
@@ -84,21 +85,22 @@ object AudioEnhancementEngine {
 
     fun setEqPreset(preset: EqualizerPreset) {
         _config.value = _config.value.copy(
+            isEnabled = true,
             eqPreset = preset,
             eq10BandsDb = preset.gains.clone()
         )
     }
 
     fun setVirtualizerPercent(percent: Float) {
-        _config.value = _config.value.copy(virtualizerPercent = percent)
+        _config.value = _config.value.copy(isEnabled = true, virtualizerPercent = percent)
     }
 
     fun setBassBoostDb(db: Float) {
-        _config.value = _config.value.copy(bassBoostDb = db)
+        _config.value = _config.value.copy(isEnabled = true, bassBoostDb = db)
     }
 
     fun setTrebleBoostDb(db: Float) {
-        _config.value = _config.value.copy(trebleBoostDb = db)
+        _config.value = _config.value.copy(isEnabled = true, trebleBoostDb = db)
     }
 
     fun resetEq() {
@@ -114,7 +116,7 @@ object AudioEnhancementEngine {
     }
 
     fun setChannelMode(mode: ChannelMode) {
-        _config.value = _config.value.copy(channelMode = mode)
+        _config.value = _config.value.copy(isEnabled = true, channelMode = mode)
     }
 
     fun resetToDefaults() {

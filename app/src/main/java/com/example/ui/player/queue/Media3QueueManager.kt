@@ -476,15 +476,32 @@ class Media3QueueManager(
     }
 
     /**
+     * Resets the queue state completely before loading a new primary video.
+     */
+    fun reset() {
+        cancelAllResolutions()
+        _queueItems.value = emptyList()
+        _videoQueue.value = emptyList()
+        _currentQueueIndex.value = 0
+        _hasNextItem.value = false
+        _hasPreviousItem.value = false
+        concatenatingMediaSource = ConcatenatingMediaSource()
+    }
+
+    /**
      * Handles Media3 onMediaItemTransition event.
      */
     fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+        if (mediaItem == null) return
         val player = exoPlayer ?: return
-        val concatIdx = player.currentMediaItemIndex
+        if (player.mediaItemCount == 0) return
         val currentList = _queueItems.value
+        if (currentList.isEmpty()) return
+        val concatIdx = player.currentMediaItemIndex
+        if (concatIdx < 0) return
 
         // Map concatenating index back to queue item index
-        var mappedQueueIdx = 0
+        var mappedQueueIdx = -1
         var foundCount = 0
         for (i in currentList.indices) {
             if (currentList[i].mediaSource != null) {
@@ -497,12 +514,15 @@ class Media3QueueManager(
         }
 
         if (mappedQueueIdx in currentList.indices) {
+            val prevIdx = _currentQueueIndex.value
             _currentQueueIndex.value = mappedQueueIdx
             val item = currentList[mappedQueueIdx]
             updateNavigationState()
 
-            item.streamData?.let {
-                onActiveVideoChanged(it, item.videoItem)
+            if (mappedQueueIdx != prevIdx) {
+                item.streamData?.let {
+                    onActiveVideoChanged(it, item.videoItem)
+                }
             }
         }
     }
