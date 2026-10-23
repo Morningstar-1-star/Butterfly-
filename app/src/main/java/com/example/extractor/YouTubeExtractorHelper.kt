@@ -774,6 +774,35 @@ object YouTubeExtractorHelper {
             }
         }
 
+        val isOlaMovies = providerId == "olamovies" || providerId == "ola" ||
+                urlOrId.startsWith("olamovies::") || urlOrId.startsWith("olamovies_resolve::") ||
+                urlOrId.contains("olamovies.", ignoreCase = true) || urlOrId.contains("ol-am.top", ignoreCase = true)
+        if (isOlaMovies) {
+            try {
+                val olaData = OlaMoviesProvider.getStreamData(urlOrId, context)
+                Log.i(TAG, "Resolved via OlaMoviesProvider for $urlOrId")
+                return@withContext ExtractionResult.Success(olaData)
+            } catch (e: Exception) {
+                val realMsg = e.message ?: "OlaMovies stream extraction failed"
+                Log.e(TAG, "OlaMovies extraction failed for $urlOrId: $realMsg", e)
+                return@withContext ExtractionResult.Error(
+                    ExtractorErrorDetails(
+                        errorType = if (realMsg.contains("captcha", ignoreCase = true) || realMsg.contains("browser check", ignoreCase = true)) {
+                            ExtractorErrorType.RECAPTCHA_REQUIRED
+                        } else {
+                            ExtractorErrorType.NO_PLAYABLE_STREAMS
+                        },
+                        message = realMsg,
+                        rawExceptionName = e.javaClass.simpleName,
+                        fullStackTrace = e.stackTraceToString(),
+                        urlOrId = urlOrId,
+                        causeInfo = e.cause?.message,
+                        technicalFixSuggestion = "OlaMovies runs natively on your phone via Worker proxy (${com.example.util.AppConfig.getOlaMoviesBaseUrl()}). You can update the OlaMovies domain in Settings -> Integrations if the site changed domains."
+                    )
+                )
+            }
+        }
+
         val isDecryptor = providerId == "decryptor" || urlOrId.startsWith("decryptor:") || urlOrId.contains("decryptor")
         if (isDecryptor) {
             val decryptorData = DecryptorProvider.getStreamData(urlOrId, context)

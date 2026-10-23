@@ -49,7 +49,8 @@ object VidSrcWasmDecryptor {
     suspend fun decrypt(
         context: Context,
         wasmUrl: String,
-        encryptedBase64: String
+        encryptedBase64: String,
+        orchOrigin: String = "https://stellarconductornexus.com"
     ): List<String> {
         val cleanEnc = encryptedBase64.trim()
         val cleanWasmUrl = wasmUrl.trim()
@@ -60,8 +61,8 @@ object VidSrcWasmDecryptor {
             wasmCache[cleanWasmUrl] ?: try {
                 val req = Request.Builder()
                     .url(cleanWasmUrl)
-                    .header("Referer", "https://cloudorchestranova.com/")
-                    .header("Origin", "https://cloudorchestranova.com")
+                    .header("Referer", "$orchOrigin/")
+                    .header("Origin", orchOrigin)
                     .header("User-Agent", DEFAULT_UA)
                     .build()
                 val resp = httpClient.newCall(req).execute()
@@ -82,7 +83,7 @@ object VidSrcWasmDecryptor {
         val decryptedText = withContext(Dispatchers.Main) {
             try {
                 withTimeoutOrNull(TIMEOUT_MS) {
-                    runWasmInWebView(context, wasmBase64, cleanEnc)
+                    runWasmInWebView(context, wasmBase64, cleanEnc, orchOrigin)
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "WASM execution timeout/error: ${e.message}")
@@ -126,7 +127,8 @@ object VidSrcWasmDecryptor {
     private suspend fun runWasmInWebView(
         context: Context,
         wasmBase64: String,
-        encBase64: String
+        encBase64: String,
+        orchOrigin: String = "https://stellarconductornexus.com"
     ): String? = suspendCancellableCoroutine { cont ->
         var resumed = false
         fun finish(res: String?) {
@@ -277,7 +279,7 @@ object VidSrcWasmDecryptor {
                 </html>
             """.trimIndent()
 
-            webView.loadDataWithBaseURL("https://cloudorchestranova.com/", html, "text/html", "UTF-8", null)
+            webView.loadDataWithBaseURL("$orchOrigin/", html, "text/html", "UTF-8", null)
 
         } catch (e: Exception) {
             Log.e(TAG, "WebView instantiation failure: ${e.message}", e)

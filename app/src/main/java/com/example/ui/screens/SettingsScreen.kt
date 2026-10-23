@@ -1610,6 +1610,63 @@ fun SettingsScreen(
                                 }
                             }
 
+                            // OlaMovies Domain & Worker Proxy Configuration Card
+                            item {
+                                var olaBaseUrlInput by remember { mutableStateOf(com.example.util.AppConfig.getOlaMoviesBaseUrl()) }
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Text(
+                                            text = "OLAMOVIES NATIVE SOURCE (WORKER PROXY)",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "OlaMovies changes domains frequently. Default fallback is https://v6.olamovies.mov routed via Cloudflare Worker proxy.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        OutlinedTextField(
+                                            value = olaBaseUrlInput,
+                                            onValueChange = { olaBaseUrlInput = it },
+                                            label = { Text("OlaMovies Base URL") },
+                                            placeholder = { Text(com.example.util.AppConfig.DEFAULT_OLAMOVIES_BASE_URL) },
+                                            singleLine = true,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
+                                        ) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    olaBaseUrlInput = com.example.util.AppConfig.DEFAULT_OLAMOVIES_BASE_URL
+                                                    com.example.util.AppConfig.setOlaMoviesBaseUrl(context, olaBaseUrlInput)
+                                                    Toast.makeText(context, "OlaMovies base URL reset to default!", Toast.LENGTH_SHORT).show()
+                                                }
+                                            ) {
+                                                Text("Reset Default")
+                                            }
+                                            Button(
+                                                onClick = {
+                                                    com.example.util.AppConfig.setOlaMoviesBaseUrl(context, olaBaseUrlInput)
+                                                    olaBaseUrlInput = com.example.util.AppConfig.getOlaMoviesBaseUrl()
+                                                    Toast.makeText(context, "OlaMovies base URL saved: $olaBaseUrlInput", Toast.LENGTH_SHORT).show()
+                                                }
+                                            ) {
+                                                Text("Save URL")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             // Subtitle Keys Card
                             item {
                                 Card(

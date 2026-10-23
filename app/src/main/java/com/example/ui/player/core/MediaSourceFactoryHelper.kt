@@ -487,7 +487,7 @@ object MediaSourceFactoryHelper {
 
         val isExplicitHls = lowerFormat == "hls" || lowerFormat == "m3u8" || lowerUrl.endsWith(".m3u8") || lowerUrl.contains(".m3u8?") || lowerUrl.contains("/hls/")
         val isExplicitMpd = lowerFormat == "mpd" || lowerUrl.endsWith(".mpd") || lowerUrl.contains(".mpd?")
-        val isExplicitMkv = lowerFormat == "mkv" || lowerUrl.endsWith(".mkv")
+        val isExplicitMkv = lowerFormat == "mkv" || lowerUrl.endsWith(".mkv") || lowerUrl.contains(".mkv?") || lowerUrl.contains(".mkv&") || lowerUrl.contains(".mkv#")
         val isExplicitAudioWebm = lowerFormat == "audio_webm" || lowerUrl.contains("mime=audio%2fwebm") || lowerUrl.contains("mime=audio/webm")
         val isExplicitVideoWebm = lowerFormat == "webm" || lowerUrl.contains("mime=video%2fwebm") || lowerUrl.contains("mime=video/webm") || lowerUrl.endsWith(".webm")
         val isExplicitAudioMp4 = lowerFormat == "audio_mp4" || lowerFormat == "m4a" || lowerUrl.contains("mime=audio%2fmp4") || lowerUrl.contains("mime=audio/mp4")

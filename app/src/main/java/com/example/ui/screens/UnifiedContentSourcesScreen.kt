@@ -114,6 +114,7 @@ fun UnifiedContentSourcesScreen(
         )
         val defaultNormal = listOf(
             UnifiedSourceItem("youtube", "YouTube", SourcePillCategory.NORMAL, "Official YouTube Streams & Shorts via InnerTube API", enabledProviderIds.contains("youtube"), qualityTag = "4K / 1080p", icon = Icons.Outlined.PlayArrow),
+            UnifiedSourceItem("olamovies", "OlaMovies (4K & FHD Direct)", SourcePillCategory.NORMAL, "Movies, TV Series & Shows via Cloudflare Worker & direct HubCloud/Gofile/Drive streams", enabledProviderIds.contains("olamovies"), qualityTag = "4K / 1080p", icon = Icons.Outlined.Movie),
             UnifiedSourceItem("bilibili", "Bilibili", SourcePillCategory.NORMAL, "Anime, gaming, creator streams & Danmaku community", enabledProviderIds.contains("bilibili"), qualityTag = "1080p 60FPS", icon = Icons.Outlined.Tv),
             UnifiedSourceItem("tencent", "Tencent Video (v.qq.com)", SourcePillCategory.NORMAL, "Official Chinese drama, anime, movies & VIP series with multi-bitrate HLS", enabledProviderIds.contains("tencent"), qualityTag = "1080p FHD", icon = Icons.Outlined.LiveTv),
             UnifiedSourceItem("dailymotion", "Dailymotion", SourcePillCategory.NORMAL, "Global news, trending videos & creator channels", enabledProviderIds.contains("dailymotion"), qualityTag = "1080p HD", icon = Icons.Outlined.VideoLibrary),

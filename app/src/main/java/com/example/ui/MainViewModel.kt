@@ -240,7 +240,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         "xhamster", "beeg", "4tube", "rule34video", "youporn"
     )
     private val normalIdsList = listOf(
-        "youtube", "tencent", "dailymotion", "bilibili", "archive", "archive_org", "torrent"
+        "youtube", "olamovies", "tencent", "dailymotion", "bilibili", "archive", "archive_org", "torrent"
     )
     val defaultDisabledProviderIds = emptySet<String>()
     val defaultEnabledNormalIdsList = normalIdsList
@@ -751,6 +751,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isSeasonsLoading.value = false
 
         val prov = (streamData.providerId ?: "").lowercase()
+        if (prov == "olamovies" && streamData.availableStreamOptions.isNotEmpty()) {
+            val episodes = streamData.availableStreamOptions.mapIndexed { idx, opt ->
+                com.example.model.EpisodeItem(
+                    id = opt.videoUrl ?: "",
+                    seasonNumber = 1,
+                    episodeNumber = idx + 1,
+                    title = opt.qualityLabel,
+                    durationText = opt.format.uppercase(),
+                    thumbnailUrl = streamData.thumbnailUrl,
+                    providerId = "olamovies",
+                    viewsText = opt.sourceName,
+                    overview = opt.releaseTitle.ifBlank { null }
+                )
+            }
+            _tvSeasons.value = listOf(
+                com.example.model.SeriesSeason(
+                    seasonNumber = 1,
+                    seasonName = if (streamData.channelName.contains("Series", ignoreCase = true)) "Episodes & Qualities" else "Available Qualities & Mirrors",
+                    episodes = episodes
+                )
+            )
+            return
+        }
+
         val isTorrentOrVega = prov == "torrent" || prov == "vega" || prov.startsWith("vega_") ||
                 prov.startsWith("tmdb") || prov == "decryptor" || prov == "vidsrc"
         val isArchive = prov == "archive" || prov == "archive_org" || prov == "archive.org"
@@ -872,7 +896,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             "decryptor", "tmdb_embed", "vidsrc", "nuvio",
             "bun-tel-meg", "bunkr", "telegram", "mega"
         )
-        val baseSet = (setOf("all", "youtube", "tencent", "dailymotion", "bilibili", "archive", "archive_org", "torrent") + defaultEnabledNormalIdsList).toMutableSet()
+        val baseSet = (setOf("all", "youtube", "olamovies", "tencent", "dailymotion", "bilibili", "archive", "archive_org", "torrent") + defaultEnabledNormalIdsList).toMutableSet()
         if (!settingsPrefs.getBoolean("clean_sources_v4", false)) {
             settingsPrefs.edit()
                 .putStringSet("enabled_provider_ids", baseSet)
@@ -897,6 +921,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             filtered
         } else {
             baseSet
+        }
+        if (!settingsPrefs.getBoolean("olamovies_enabled_v1", false)) {
+            resolved.add("olamovies")
+            settingsPrefs.edit()
+                .putStringSet("enabled_provider_ids", resolved)
+                .putStringSet("normal_enabled_provider_ids", resolved)
+                .putBoolean("olamovies_enabled_v1", true)
+                .apply()
         }
         resolved
     }())
@@ -3500,7 +3532,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Keep persistent pref as false so app always launches in normal mode after close/reopen
                 settingsPrefs.edit().putBoolean("adult_content_enabled", false).apply()
             } catch (_: Exception) {}
-        } else if (providerId == "tencent" || providerId == "youtube" || providerId == "sonyliv" || providerId == "hotstar" || providerId == "bilibili" || providerId == "amazonminitv" || providerId == "crunchyroll") {
+        } else if (providerId == "olamovies" || providerId == "tencent" || providerId == "youtube" || providerId == "sonyliv" || providerId == "hotstar" || providerId == "bilibili" || providerId == "amazonminitv" || providerId == "crunchyroll") {
             _adultContentEnabled.value = false
             try {
                 settingsPrefs.edit().putBoolean("adult_content_enabled", false).apply()
@@ -3604,6 +3636,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     category = "Video",
                     isEnabled = enabledSet.contains("youtube"),
                     isDefault = (activeId == "youtube")
+                )
+            )
+            uiList.add(
+                ProviderUiItem(
+                    id = "olamovies",
+                    name = "OlaMovies",
+                    description = "Movies, TV Series & 4K UHD direct streams (HubCloud / Gofile / Drive)",
+                    category = "Cinema",
+                    isEnabled = enabledSet.contains("olamovies"),
+                    isDefault = (activeId == "olamovies")
                 )
             )
             uiList.add(
@@ -4263,6 +4305,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 if (res.isNotEmpty()) synchronized(collected) { collected.addAll(res) }
                             }
                         }
+                        if ((activeProv == "all" || activeProv == "olamovies") && enabledSet.contains("olamovies")) {
+                            launch(Dispatchers.IO) {
+                                val res = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                                    com.example.extractor.OlaMoviesProvider.search(cleanTag, 20, 1, getApplication())
+                                } ?: emptyList()
+                                if (res.isNotEmpty()) synchronized(collected) { collected.addAll(res) }
+                            }
+                        }
                         if ((activeProv == "all" || activeProv == "dailymotion") && enabledSet.contains("dailymotion")) {
                             launch(Dispatchers.IO) {
                                 val res = kotlinx.coroutines.withTimeoutOrNull(5000L) {
@@ -4479,6 +4529,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                             com.example.extractor.TubiTvProvider.search(searchTarget, 30)
                                         } ?: emptyList()
                                     }
+                                    "olamovies", "ola" -> {
+                                        kotlinx.coroutines.withTimeoutOrNull(12000L) {
+                                            com.example.extractor.OlaMoviesProvider.search(searchTarget, 30, 1, getApplication())
+                                        } ?: emptyList()
+                                    }
                                     "torrent", "jikan_anime", "anime" -> {
                                         kotlinx.coroutines.withTimeoutOrNull(9000L) {
                                             searchTorrentMedia(searchTarget)
@@ -4666,6 +4721,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     } ?: emptyList()
                                     if (tencentResults.isNotEmpty()) {
                                         synchronized(collectedList) { collectedList.addAll(tencentResults) }
+                                        updateUiResults()
+                                    }
+                                } catch (_: Exception) {}
+                            }
+                        }
+
+                        // 3b. OlaMovies (Native Worker proxy)
+                        if (enabledSet.contains("olamovies") || activeProv == "all") {
+                            launch(Dispatchers.IO) {
+                                try {
+                                    val olaResults = kotlinx.coroutines.withTimeoutOrNull(8000L) {
+                                        com.example.extractor.OlaMoviesProvider.search(searchTarget, 24, 1, getApplication())
+                                    } ?: emptyList()
+                                    if (olaResults.isNotEmpty()) {
+                                        synchronized(collectedList) { collectedList.addAll(olaResults) }
                                         updateUiResults()
                                     }
                                 } catch (_: Exception) {}
@@ -5030,6 +5100,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
 
+                    // 5b. OlaMovies (Mainstream Movies & TV Series via Worker)
+                    if (!adultEnabled && (activeProv == "all" || activeProv == "olamovies") && enabledSet.contains("olamovies")) {
+                        launch(Dispatchers.IO) {
+                            val olaItems = fetchSafely("olamovies", if (activeProv == "olamovies") 12000L else 6500L) {
+                                com.example.extractor.OlaMoviesProvider.getHome(provLimit, targetPage, getApplication())
+                            }
+                            if (olaItems.isNotEmpty()) {
+                                updateFeedProgressively(olaItems)
+                            }
+                        }
+                    }
+
                     // 6. Eporner (if adult content enabled)
                     if (adultEnabled && (activeProv == "all" || activeProv == "eporner") && enabledSet.contains("eporner")) {
                         launch(Dispatchers.IO) {
@@ -5099,7 +5181,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         )
                     }
                 } else {
-                    listOf("tencent", "dailymotion", "bilibili")
+                    listOf("olamovies", "tencent", "dailymotion", "bilibili")
                 }
                 val targetFastSources = when {
                     activeProv == "all" -> fastMultiSources.filter { enabledSet.contains(it) && (if (adultEnabled) isAdultProviderId(it) && !isNormalProvider(it) else !isAdultProviderId(it)) }
@@ -5244,7 +5326,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix",
                             "spankbang", "playvid", "txxx"
                         ) else listOf(
-                            "tencent", "dailymotion", "bilibili"
+                            "olamovies", "tencent", "dailymotion", "bilibili"
                         )
                         multiProvs.filter { enabledSet.contains(it) }.forEach { p ->
                             try {
@@ -5300,7 +5382,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             "cam4", "cammodels", "chaturbate", "noodlemagazine", "thisvid", "tnaflix",
                             "playvid", "txxx"
                         ) else listOf(
-                            "tencent", "dailymotion", "bilibili"
+                            "olamovies", "tencent", "dailymotion", "bilibili"
                         )
                         multiProvs.filter { enabledSet.contains(it) }.forEach { p ->
                             try {
@@ -5506,7 +5588,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             val animeItems = com.example.extractor.MultiSourceProvider.search(getApplication(), cleanProvider, targetTerm, 15, 1)
                             discovered.addAll(animeItems.filter { it.id != vid && !isAdultVideoItem(it) })
                         } catch (_: Exception) {}
-                    } else if (cleanProvider in setOf("dailymotion", "vimeo", "archive", "archive_org") && enabledSet.contains(cleanProvider)) {
+                    } else if (cleanProvider in setOf("olamovies", "dailymotion", "vimeo", "archive", "archive_org") && enabledSet.contains(cleanProvider)) {
                         try {
                             val provItems = com.example.extractor.MultiSourceProvider.search(getApplication(), cleanProvider, targetTerm, 15, 1)
                             discovered.addAll(provItems.filter { it.id != vid && !isAdultVideoItem(it) })
@@ -5717,6 +5799,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 cleanIdOrUrl.contains("imdb.com", ignoreCase = true) || cleanIdOrUrl.startsWith("imdb:", ignoreCase = true) -> "imdb"
                 cleanIdOrUrl.contains("mxplayer.in", ignoreCase = true) || cleanIdOrUrl.startsWith("mxplayer:", ignoreCase = true) -> "mxplayer"
                 cleanIdOrUrl.contains("popcorntime", ignoreCase = true) || cleanIdOrUrl.startsWith("popcorntv:", ignoreCase = true) -> "popcorntv"
+                cleanIdOrUrl.startsWith("olamovies::", ignoreCase = true) || cleanIdOrUrl.startsWith("olamovies_resolve::", ignoreCase = true) || cleanIdOrUrl.contains("olamovies.", ignoreCase = true) || cleanIdOrUrl.contains("ol-am.top", ignoreCase = true) -> "olamovies"
                 cleanIdOrUrl.contains("tubitv.com", ignoreCase = true) || cleanIdOrUrl.contains("tubi.tv", ignoreCase = true) || cleanIdOrUrl.startsWith("tubitv:", ignoreCase = true) || cleanIdOrUrl.startsWith("tubi:", ignoreCase = true) -> "tubitv"
                 cleanIdOrUrl.contains("decryptor", ignoreCase = true) || cleanIdOrUrl.startsWith("decryptor:", ignoreCase = true) -> "decryptor"
                 cleanIdOrUrl.startsWith("tmdb_") -> {
@@ -6320,6 +6403,63 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         captionOption = _selectedCaptionOption.value,
                         initialPos = currentPos
                     )
+                }
+                return
+            }
+
+            // Handle OlaMovies on-demand quality/episode link resolution (Stage 2)
+            if (url.startsWith("olamovies_resolve::")) {
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        val parts = url.removePrefix("olamovies_resolve::").split("::", limit = 3)
+                        val shortenerUrl = parts.getOrNull(0).orEmpty()
+                        val label = parts.getOrNull(1).orEmpty().ifBlank { option.qualityLabel }
+                        val parentPath = parts.getOrNull(2).orEmpty()
+                        withContext(Dispatchers.Main) {
+                            android.widget.Toast.makeText(getApplication(), "Resolving OlaMovies stream ($label)...", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                        val streamData = com.example.extractor.OlaMoviesProvider.getStreamData(url, getApplication())
+                        val primary = streamData.selectedStreamOption
+                            ?: streamData.availableStreamOptions.firstOrNull()
+                            ?: throw com.example.extractor.OlaMoviesProvider.OlaMoviesException("No playable stream returned for $label")
+                        val isHls = primary.videoUrl?.contains(".m3u8", ignoreCase = true) == true
+                        val playableOption = primary.copy(
+                            qualityLabel = if (primary.qualityLabel.contains(label)) primary.qualityLabel else "$label • ${primary.qualityLabel}",
+                            format = if (isHls) "hls" else primary.format.ifBlank { "mkv" }
+                        )
+                        withContext(Dispatchers.Main) {
+                            _selectedStreamOption.value = playableOption
+                            val freshSuccess = _extractionResult.value as? YouTubeExtractorHelper.ExtractionResult.Success
+                            if (freshSuccess != null) {
+                                val updatedOptions = freshSuccess.streamData.availableStreamOptions.map {
+                                    if (it.videoUrl == url) playableOption else it
+                                }
+                                val freshData = freshSuccess.streamData.copy(
+                                    videoUrl = playableOption.videoUrl ?: "",
+                                    selectedStreamOption = playableOption,
+                                    availableStreamOptions = updatedOptions,
+                                    headers = playableOption.headers
+                                )
+                                _extractionResult.value = YouTubeExtractorHelper.ExtractionResult.Success(freshData)
+                                com.example.ui.player.GlobalPlayerManager.prepareAndPlay(
+                                    context = getApplication(),
+                                    streamData = freshData,
+                                    streamOption = playableOption,
+                                    hlsUrl = if (isHls) playableOption.videoUrl else null,
+                                    captionOption = _selectedCaptionOption.value,
+                                    initialPos = 0L
+                                )
+                            }
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            android.widget.Toast.makeText(
+                                getApplication(),
+                                "OlaMovies playback failed: ${e.message ?: "Unable to resolve stream"}",
+                                android.widget.Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
                 }
                 return
             }

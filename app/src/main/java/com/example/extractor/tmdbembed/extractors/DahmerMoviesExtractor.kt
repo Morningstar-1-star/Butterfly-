@@ -59,7 +59,11 @@ object DahmerMoviesExtractor {
                     text.endsWith(".mkv", ignoreCase = true) ||
                     text.endsWith(".m3u8", ignoreCase = true)
                 ) {
-                    val fullUrl = if (href.startsWith("http")) href else "$BASE_URL$targetPath$href"
+                    val fullUrl = when {
+                        href.startsWith("http") -> href
+                        href.startsWith("/") -> "$BASE_URL$href"
+                        else -> "$BASE_URL$targetPath$href"
+                    }
                     val qual = when {
                         text.contains("2160") || text.contains("4k", ignoreCase = true) -> "4K"
                         text.contains("1080") -> "1080p"

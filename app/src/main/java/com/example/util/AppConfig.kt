@@ -42,6 +42,7 @@ object AppConfig {
     private const val KEY_MAGNETIO_ENABLED = "magnetio_enabled"
     private const val KEY_DECRYPTOR_BASE_URL = "decryptor_base_url"
     private const val KEY_DECRYPTOR_ENABLED = "decryptor_enabled"
+    private const val KEY_OLAMOVIES_BASE_URL = "olamovies_base_url"
 
     // Default working keys & mirrors
     const val DEFAULT_TMDB_API_KEY = "3155fdb497f7575a144f26adebcbf980"
@@ -68,7 +69,13 @@ object AppConfig {
     const val DEFAULT_MAGNETIO_ENABLED = true
     const val DEFAULT_DECRYPTOR_BASE_URL = "https://decryptor-nxsha.onrender.com"
     const val DEFAULT_DECRYPTOR_ENABLED = true
+    const val DEFAULT_OLAMOVIES_BASE_URL = "https://v6.olamovies.mov"
+    const val DEFAULT_OLAMOVIES_WORKER_URL = "https://falling-wildflower-9a91.samdem612.workers.dev"
+    const val DEFAULT_OLAMOVIES_WORKER_KEY = "kKRUiaCTetZ58DRFpFpTuVnYJjH6E7mg"
     val DEFAULT_PO_TOKEN_SERVER_URL: String get() = com.example.BuildConfig.PO_TOKEN_SERVER_URL
+
+    @Volatile
+    private var cachedOlaMoviesBaseUrl: String? = null
 
     @Volatile
     private var cachedDecryptorEnabled: Boolean = DEFAULT_DECRYPTOR_ENABLED
@@ -215,6 +222,17 @@ object AppConfig {
         cachedMagnetioEnabled = prefs.getBoolean(KEY_MAGNETIO_ENABLED, DEFAULT_MAGNETIO_ENABLED)
         cachedDecryptorEnabled = prefs.getBoolean(KEY_DECRYPTOR_ENABLED, DEFAULT_DECRYPTOR_ENABLED)
         cachedDecryptorBaseUrl = prefs.getString(KEY_DECRYPTOR_BASE_URL, null)?.ifBlank { null } ?: DEFAULT_DECRYPTOR_BASE_URL
+        cachedOlaMoviesBaseUrl = prefs.getString(KEY_OLAMOVIES_BASE_URL, null)?.ifBlank { null } ?: DEFAULT_OLAMOVIES_BASE_URL
+    }
+
+    fun getOlaMoviesBaseUrl(): String = (cachedOlaMoviesBaseUrl ?: DEFAULT_OLAMOVIES_BASE_URL).trim().trimEnd('/')
+
+    fun setOlaMoviesBaseUrl(context: Context, url: String) {
+        val clean = url.trim().trimEnd('/')
+        cachedOlaMoviesBaseUrl = clean.ifBlank { DEFAULT_OLAMOVIES_BASE_URL }
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putString(KEY_OLAMOVIES_BASE_URL, cachedOlaMoviesBaseUrl)
+            .apply()
     }
 
     fun isDecryptorEnabled(): Boolean = cachedDecryptorEnabled

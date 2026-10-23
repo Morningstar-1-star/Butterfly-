@@ -208,73 +208,90 @@ object VidSrcStreamExtractor {
     ): List<PlayableStreamOption> = withContext(Dispatchers.IO) {
         val resultOptions = mutableListOf<PlayableStreamOption>()
 
-        // 1. Fetch encrypted stream payload from data API
-        val streamApiUrl = if (isTv) {
-            "https://data.vidsrcme.ru/api.php?type=tv&tmdb=$tmdbId&season=$season&episode=$episode&stream_urls"
-        } else {
-            "https://data.vidsrcme.ru/api.php?type=movie&tmdb=$tmdbId&stream_urls"
-        }
-
         var jsonBody: JSONObject? = null
+        var orchOrigin = "https://stellarconductornexus.com"
+
+        // 1. Dynamic live config discovery via vsembed.ru
         try {
-            val req = Request.Builder()
-                .url(streamApiUrl)
-                .header("Referer", "https://cloudorchestranova.com/")
-                .header("Origin", "https://cloudorchestranova.com")
+            val vsSrcUrl = if (isTv) {
+                "https://vsembed.ru/vs_src.php?type=tv&id=$tmdbId&s=$season&e=$episode"
+            } else {
+                "https://vsembed.ru/vs_src.php?type=movie&id=$tmdbId"
+            }
+            val vsReq = Request.Builder()
+                .url(vsSrcUrl)
+                .header("Referer", if (isTv) "https://vsembed.ru/embed/tv/$tmdbId/$season/$episode/" else "https://vsembed.ru/embed/movie/$tmdbId/")
                 .header("User-Agent", DEFAULT_UA)
                 .build()
+            val vsResp = httpClient.newCall(vsReq).execute()
+            val vsBody = vsResp.body?.string().orEmpty()
+            if (vsBody.contains("src")) {
+                val embedSrc = JSONObject(vsBody).optString("src")
+                if (embedSrc.isNotBlank()) {
+                    val parsedOrchUri = Uri.parse(embedSrc)
+                    val dynOrigin = "${parsedOrchUri.scheme}://${parsedOrchUri.host}"
+                    if (parsedOrchUri.host?.isNotBlank() == true) {
+                        orchOrigin = dynOrigin
+                    }
 
-            val resp = httpClient.newCall(req).execute()
-            val body = resp.body?.string().orEmpty()
-            if (body.isNotBlank() && body.contains("stream_urls")) {
-                jsonBody = JSONObject(body)
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Primary stream-data API request failed: ${e.message}")
-        }
+                    // Extract player URL from orchestrator page
+                    val orchReq = Request.Builder()
+                        .url(embedSrc)
+                        .header("Referer", "https://vsembed.ru/")
+                        .header("User-Agent", DEFAULT_UA)
+                        .build()
+                    val orchHtml = httpClient.newCall(orchReq).execute().body?.string().orEmpty()
+                    val playerUrlMatch = Regex("""["']playerUrl["']\s*:\s*["']([^"']+)["']""").find(orchHtml)
+                    if (playerUrlMatch != null) {
+                        val raw = playerUrlMatch.groupValues[1]
+                        val playerUrl = if (raw.startsWith("http")) raw else "$orchOrigin$raw"
 
-        // Dynamic fallback: discover current player config via vsembed.ru if direct domain changed
-        if (jsonBody == null) {
-            try {
-                val vsSrcUrl = if (isTv) {
-                    "https://vsembed.ru/vs_src.php?type=tv&id=$tmdbId&s=$season&e=$episode"
-                } else {
-                    "https://vsembed.ru/vs_src.php?type=movie&id=$tmdbId"
-                }
-                val vsReq = Request.Builder()
-                    .url(vsSrcUrl)
-                    .header("Referer", if (isTv) "https://vsembed.ru/embed/tv/$tmdbId/$season/$episode/" else "https://vsembed.ru/embed/movie/$tmdbId/")
-                    .header("User-Agent", DEFAULT_UA)
-                    .build()
-                val vsResp = httpClient.newCall(vsReq).execute()
-                val vsBody = vsResp.body?.string().orEmpty()
-                if (vsBody.contains("src")) {
-                    val embedSrc = JSONObject(vsBody).optString("src")
-                    if (embedSrc.isNotBlank()) {
-                        // Extract player URL and API endpoint from orchestrator
-                        val orchReq = Request.Builder().url(embedSrc).header("Referer", "https://vsembed.ru/").header("User-Agent", DEFAULT_UA).build()
-                        val orchHtml = httpClient.newCall(orchReq).execute().body?.string().orEmpty()
-                        val playerUrlMatch = Regex("""["']playerUrl["']\s*:\s*["']([^"']+)["']""").find(orchHtml)
-                        if (playerUrlMatch != null) {
-                            val raw = playerUrlMatch.groupValues[1]
-                            val playerUrl = if (raw.startsWith("http")) raw else "https://cloudorchestranova.com" + raw
-                            val pReq = Request.Builder().url(playerUrl).header("Referer", embedSrc).header("User-Agent", DEFAULT_UA).build()
-                            val pHtml = httpClient.newCall(pReq).execute().body?.string().orEmpty()
-                            val apiMatch = Regex("""["']api["']\s*:\s*["']([^"']+)["']""").find(pHtml)
-                            if (apiMatch != null) {
-                                val dynamicApiUrl = apiMatch.groupValues[1]
-                                val dynReq = Request.Builder().url(dynamicApiUrl).header("Referer", "https://cloudorchestranova.com/").header("User-Agent", DEFAULT_UA).build()
-                                val dynBody = httpClient.newCall(dynReq).execute().body?.string().orEmpty()
-                                if (dynBody.contains("stream_urls")) {
-                                    jsonBody = JSONObject(dynBody)
-                                }
+                        // Fetch player page to extract CONFIG, apiToken, api / streamBase
+                        val pReq = Request.Builder()
+                            .url(playerUrl)
+                            .header("Referer", embedSrc)
+                            .header("User-Agent", DEFAULT_UA)
+                            .build()
+                        val pHtml = httpClient.newCall(pReq).execute().body?.string().orEmpty()
+
+                        val tokenMatch = Regex("""["']apiToken["']\s*:\s*["']([^"']+)["']""").find(pHtml)
+                        val apiMatch = Regex("""["']api["']\s*:\s*["']([^"']+)["']""").find(pHtml)
+                        val streamBaseMatch = Regex("""["']streamBase["']\s*:\s*["']([^"']+)["']""").find(pHtml)
+
+                        val apiToken = tokenMatch?.groupValues?.get(1)?.trim().orEmpty()
+                        val rawApi = apiMatch?.groupValues?.get(1)?.replace("\\u0026", "&")
+                        val rawStreamBase = streamBaseMatch?.groupValues?.get(1)?.replace("\\u0026", "&")
+
+                        val targetApiUrl = if (isTv) {
+                            val base = rawStreamBase ?: rawApi
+                            if (base != null) {
+                                val clean = if (base.contains("season=")) base else "$base&season=$season&episode=$episode&stream_urls"
+                                if (apiToken.isNotBlank()) "$clean&api_token=${java.net.URLEncoder.encode(apiToken, "UTF-8")}" else clean
+                            } else null
+                        } else {
+                            val base = rawApi ?: rawStreamBase?.let { "$it&stream_urls" }
+                            if (base != null) {
+                                if (apiToken.isNotBlank()) "$base&api_token=${java.net.URLEncoder.encode(apiToken, "UTF-8")}" else base
+                            } else null
+                        }
+
+                        if (!targetApiUrl.isNullOrBlank()) {
+                            val dynReq = Request.Builder()
+                                .url(targetApiUrl)
+                                .header("Referer", "$orchOrigin/")
+                                .header("Origin", orchOrigin)
+                                .header("User-Agent", DEFAULT_UA)
+                                .build()
+                            val dynBody = httpClient.newCall(dynReq).execute().body?.string().orEmpty()
+                            if (dynBody.contains("stream_urls")) {
+                                jsonBody = JSONObject(dynBody)
                             }
                         }
                     }
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "Dynamic config discovery failed: ${e.message}")
             }
+        } catch (e: Exception) {
+            Log.w(TAG, "Dynamic config discovery failed: ${e.message}")
         }
 
         if (jsonBody == null) return@withContext emptyList()
@@ -289,11 +306,12 @@ object VidSrcStreamExtractor {
             return@withContext emptyList()
         }
 
-        // 2. Perform On-Device WebAssembly Decryption
+        // 2. Perform On-Device WebAssembly Decryption with dynamic orchestrator origin
         val decryptedUrls = VidSrcWasmDecryptor.decrypt(
             context = context,
             wasmUrl = wasmUrl,
-            encryptedBase64 = encryptedStreamUrls
+            encryptedBase64 = encryptedStreamUrls,
+            orchOrigin = orchOrigin
         )
 
         if (decryptedUrls.isEmpty()) {
@@ -317,8 +335,8 @@ object VidSrcStreamExtractor {
                 val tokenUrl = "https://$host/generate.php"
                 val tokenReq = Request.Builder()
                     .url(tokenUrl)
-                    .header("Referer", "https://cloudorchestranova.com/")
-                    .header("Origin", "https://cloudorchestranova.com")
+                    .header("Referer", "$orchOrigin/")
+                    .header("Origin", orchOrigin)
                     .header("User-Agent", DEFAULT_UA)
                     .build()
 
@@ -344,8 +362,8 @@ object VidSrcStreamExtractor {
                             videoUrl = playableUrl,
                             providerType = ProviderType.DIRECT,
                             headers = mapOf(
-                                "Referer" to "https://cloudorchestranova.com/",
-                                "Origin" to "https://cloudorchestranova.com",
+                                "Referer" to "$orchOrigin/",
+                                "Origin" to orchOrigin,
                                 "User-Agent" to DEFAULT_UA
                             ),
                             sourceName = providerName,

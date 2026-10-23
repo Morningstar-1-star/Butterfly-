@@ -228,6 +228,10 @@ class MainApplication : Application() {
                         requestBuilder.header("Referer", "https://tubitv.com/")
                         requestBuilder.header("Origin", "https://tubitv.com")
                     }
+                    urlStr.contains("falling-wildflower-9a91.samdem612.workers.dev") || urlStr.contains("olamovies") -> {
+                        requestBuilder.header("x-proxy-key", com.example.util.AppConfig.DEFAULT_OLAMOVIES_WORKER_KEY)
+                        requestBuilder.header("Referer", "${com.example.util.AppConfig.getOlaMoviesBaseUrl()}/")
+                    }
                 }
 
                 chain.proceed(requestBuilder.build())

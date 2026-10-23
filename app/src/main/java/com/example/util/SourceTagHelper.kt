@@ -42,6 +42,7 @@ object SourceTagHelper {
         if (pid == "tencent" || pid == "vqq" || pid == "qq" ||
             pid == "bilibili" || pid == "dailymotion" || pid == "vimeo" ||
             pid == "twitch" || pid == "bigo" || pid == "bigolive" ||
+            pid == "olamovies" || pid == "ola" ||
             pid == "bunkr" || pid == "mega" || pid == "telegram" ||
             pid == "yts" || pid == "eztv" || pid == "1337x" || pid == "nyaa" || pid == "torrent" || pid == "torrentio" ||
             pid == "archive_org" || pid == "archive" || pid == "tmdb" || pid == "anilist" || pid == "jikan" ||
@@ -82,7 +83,8 @@ object SourceTagHelper {
             vid.startsWith("archive_", ignoreCase = true) ||
             vid.startsWith("tmdb_", ignoreCase = true) ||
             vid.startsWith("anilist_", ignoreCase = true) ||
-            vid.startsWith("vega_", ignoreCase = true)
+            vid.startsWith("vega_", ignoreCase = true) ||
+            vid.startsWith("olamovies", ignoreCase = true)
         ) {
             return false
         }
@@ -279,6 +281,7 @@ object SourceTagHelper {
             pid == "mxplayer" -> "MX Player"
             pid == "popcorntv" || pid == "popcorn" -> "PopcornTV"
             pid == "tubitv" || pid == "tubi" -> "Tubi TV"
+            pid == "olamovies" || pid == "ola" -> "OlaMovies"
             pid == "decryptor" -> "Decryptor"
             pid == "vidsrc" -> "VidSrc"
 
@@ -400,6 +403,7 @@ object SourceTagHelper {
             vid.startsWith("ph_") || vid.contains("pornhub.com") -> "Pornhub"
             vid.startsWith("xv_") || vid.contains("xvideos.com") -> "XVideos"
             vid.startsWith("xh_") || vid.contains("xhamster.com") -> "xHamster"
+            vid.startsWith("olamovies") || vid.contains("olamovies.") -> "OlaMovies"
             vid.startsWith("vega_") -> "Vega"
 
             // Check Thumbnail CDN URLs
@@ -478,6 +482,7 @@ object SourceTagHelper {
             s.contains("mx player") -> "mxplayer"
             s.contains("popcorn") -> "popcorntv"
             s.contains("tubitv") || s.contains("tubi") -> "tubitv"
+            s.contains("olamovies") -> "olamovies"
             s.contains("imdb") -> "imdb"
             s.contains("bunkr") -> "bunkr"
             s.contains("mega") -> "mega"
@@ -539,6 +544,7 @@ object SourceTagHelper {
             s.contains("mx player") -> Pair(Color(0xFF1565C0), Color.White)
             s.contains("popcorntv") -> Pair(Color(0xFFD32F2F), Color.White)
             s.contains("tubitv") || s.contains("tubi") -> Pair(Color(0xFFFA233B), Color.White)
+            s.contains("olamovies") -> Pair(Color(0xFF10B981), Color.Black)
             s.contains("decryptor") -> Pair(Color(0xFF00E5FF), Color.Black)
             s.contains("vidsrc") -> Pair(Color(0xFFFF9100), Color.White)
             s.contains("telegram") -> Pair(Color(0xFF2AABEE), Color.White)
