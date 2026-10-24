@@ -151,25 +151,24 @@ object NuvioProviderEngine {
 
         // 1. Query Butterfly-MediaServer cloud resolver
         try {
-            val serverRes = com.example.vega.VegaProviderClient.resolveFullVegaPlayback(
-                specificProviderId ?: "nuvio",
-                enrichedReq.title.ifBlank { "Movie" }
+            val serverStreams = com.example.vega.VegaProviderClient.resolveNuvio(
+                tmdbId = enrichedReq.tmdbId, isTv = enrichedReq.isTv,
+                season = enrichedReq.season, episode = enrichedReq.episode,
+                providerId = specificProviderId
             )
-            if (serverRes.success && serverRes.streams.isNotEmpty()) {
-                serverRes.streams.forEach { st ->
-                    streamOptions.add(
-                        PlayableStreamOption(
-                            qualityLabel = "${st.quality} • ${st.server}",
-                            format = st.format.lowercase(),
-                            isMuxed = true,
-                            videoUrl = st.url,
-                            audioUrl = null,
-                            providerType = ProviderType.NUVIO,
-                            headers = st.headers,
-                            sourceName = st.server.ifBlank { "Butterfly-MediaServer" }
-                        )
+            serverStreams.forEach { st ->
+                streamOptions.add(
+                    PlayableStreamOption(
+                        qualityLabel = "${st.quality} • ${st.server}",
+                        format = st.format.lowercase(),
+                        isMuxed = true,
+                        videoUrl = st.url,
+                        audioUrl = null,
+                        providerType = ProviderType.NUVIO,
+                        headers = st.headers,
+                        sourceName = st.server.ifBlank { "Butterfly-MediaServer" }
                     )
-                }
+                )
             }
         } catch (e: Exception) {
             Log.d(TAG, "Butterfly-MediaServer Nuvio resolution notice: ${e.message}")

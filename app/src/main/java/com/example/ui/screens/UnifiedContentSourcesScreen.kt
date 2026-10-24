@@ -627,7 +627,7 @@ fun UnifiedContentSourcesScreen(
                             value = customVegaUrlInput,
                             onValueChange = { customVegaUrlInput = it },
                             label = { Text("Server Base URL") },
-                            placeholder = { Text("https://butterfly-mediaserver.onrender.com") },
+                            placeholder = { Text("https://butterfly-mediaserver-1.onrender.com") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )

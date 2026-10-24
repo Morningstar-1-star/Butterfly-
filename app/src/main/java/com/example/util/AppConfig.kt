@@ -52,7 +52,7 @@ object AppConfig {
     const val DEFAULT_SUBDL_API_KEY = "subdl_Mp42hcrZJOddEWEGyUjzp1q2A1NsdWxkAd2pDD8PCwg"
     const val DEFAULT_OPENSUBTITLES_API_KEY = "p1Q8N8Z6eB0s6Z6A5t8Y4U1I3O9P2L5K"
     const val DEFAULT_TORRENTIO_BASE_URL = "https://torrentio.strem.fun"
-    const val DEFAULT_VEGA_SERVER_URL = "https://butterfly-mediaserver.onrender.com"
+    const val DEFAULT_VEGA_SERVER_URL = "https://butterfly-mediaserver-1.onrender.com"
     const val DEFAULT_JAVINIZER_API_URL = "http://localhost:8765"
     const val DEFAULT_JAVINIZER_TIMEOUT_SECONDS = 15
     const val DEFAULT_JAVINIZER_ENABLED = true
@@ -196,7 +196,13 @@ object AppConfig {
         cachedTorrentioUrl = prefs.getString(KEY_TORRENTIO_BASE_URL, null)?.ifBlank { null } ?: DEFAULT_TORRENTIO_BASE_URL
         cachedPoTokenServerUrl = prefs.getString(KEY_POTOKEN_SERVER_URL, null)?.ifBlank { null } ?: DEFAULT_PO_TOKEN_SERVER_URL
         cachedCustomPoToken = prefs.getString(KEY_CUSTOM_POTOKEN, null)?.ifBlank { null } ?: ""
-        cachedVegaUrl = prefs.getString(KEY_VEGA_SERVER_URL, null)?.ifBlank { null } ?: DEFAULT_VEGA_SERVER_URL
+        val rawVegaUrl = prefs.getString(KEY_VEGA_SERVER_URL, null)?.trim()?.trimEnd('/')?.ifBlank { null }
+        cachedVegaUrl = if (rawVegaUrl == null || rawVegaUrl.equals("https://butterfly-mediaserver.onrender.com", ignoreCase = true)) {
+            prefs.edit().putString(KEY_VEGA_SERVER_URL, DEFAULT_VEGA_SERVER_URL).apply()
+            DEFAULT_VEGA_SERVER_URL
+        } else {
+            rawVegaUrl
+        }
         cachedDebridKey = prefs.getString(KEY_DEBRID_API_KEY, null)?.ifBlank { null } ?: ""
         cachedProxyHost = prefs.getString(KEY_TORRENT_PROXY_HOST, null)?.ifBlank { null } ?: ""
         cachedProxyPort = prefs.getInt(KEY_TORRENT_PROXY_PORT, 1080)
@@ -475,7 +481,14 @@ object AppConfig {
             .apply()
     }
 
-    fun getVegaServerUrl(): String = cachedVegaUrl ?: DEFAULT_VEGA_SERVER_URL
+    fun getVegaServerUrl(): String {
+        val current = cachedVegaUrl ?: DEFAULT_VEGA_SERVER_URL
+        return if (current.trim().trimEnd('/').equals("https://butterfly-mediaserver.onrender.com", ignoreCase = true)) {
+            DEFAULT_VEGA_SERVER_URL
+        } else {
+            current
+        }
+    }
 
     fun setVegaServerUrl(context: Context, url: String) {
         val clean = url.trim().trimEnd('/')

@@ -1458,7 +1458,30 @@ object OlaMoviesProvider {
                     if (tmdbId.isBlank() && cleanTitle.isNotBlank()) {
                         tmdbId = com.example.util.TMDBHelper.resolveTmdbAndImdb(cleanTitle, if (isSeries) "tv" else "movie").first ?: ""
                     }
-                    if (tmdbId.isNotBlank() && context != null) {
+                    if (cleanTitle.isNotBlank()) {
+                        com.example.vega.VegaProviderClient.resolveUnified(
+                            title = cleanTitle,
+                            tmdbId = tmdbId,
+                            isTv = isSeries,
+                            season = seasonNum,
+                            episode = epNum
+                        ).forEach { st ->
+                            options.add(
+                                PlayableStreamOption(
+                                    qualityLabel = "$qualityLabel • ${st.quality.ifBlank { "HD" }} • ${st.server}",
+                                    format = st.format.lowercase(),
+                                    isMuxed = true,
+                                    videoUrl = st.url,
+                                    audioUrl = null,
+                                    providerType = ProviderType.DIRECT,
+                                    headers = st.headers,
+                                    sourceName = "OlaMovies (Server)",
+                                    releaseTitle = parentMeta?.title ?: cleanTitle
+                                )
+                            )
+                        }
+                    }
+                    if (options.isEmpty() && tmdbId.isNotBlank() && context != null) {
                         val tmdbReq = com.example.extractor.tmdbembed.TMDBMediaRequest(
                             tmdbId = tmdbId,
                             mediaType = if (isSeries) "tv" else "movie",
@@ -1557,9 +1580,10 @@ object OlaMoviesProvider {
 
         var resolvedStreams: List<OlaResolvedStream>? = null
         var chosenLink: OlaDirectLink? = null
+        var lastResolveError: String? = null
 
         // Try candidate links from OlaMovies
-        for (candidate in orderedLinks.take(2)) {
+        for (candidate in orderedLinks.take(3)) {
             try {
                 val streams = resolveStreamForLink(candidate.link, context)
                 if (streams.isNotEmpty()) {
@@ -1568,7 +1592,10 @@ object OlaMoviesProvider {
                     break
                 }
             } catch (e: Exception) {
+                lastResolveError = e.message
                 Log.w(TAG, "Candidate link note (${candidate.title} - ${candidate.link}): ${e.message}")
+                // All releases share the same ol-am.top shortener; if it is blocked, the others will be too.
+                if (e.message?.contains("shortener", ignoreCase = true) == true) break
             }
         }
 
@@ -1590,7 +1617,29 @@ object OlaMoviesProvider {
                 val found = com.example.util.TMDBHelper.resolveTmdbAndImdb(cleanSearchTitle, if (meta.isSeries) "tv" else "movie")
                 tmdbId = found.first ?: ""
             }
-            if (tmdbId.isNotBlank() && context != null) {
+            if (cleanSearchTitle.isNotBlank()) {
+                val serverStreams = com.example.vega.VegaProviderClient.resolveUnified(
+                    title = cleanSearchTitle,
+                    tmdbId = tmdbId,
+                    isTv = meta.isSeries
+                )
+                serverStreams.forEach { st ->
+                    cinemaOptions.add(
+                        PlayableStreamOption(
+                            qualityLabel = "${st.quality.ifBlank { "HD" }} • ${st.server}",
+                            format = st.format.lowercase(),
+                            isMuxed = true,
+                            videoUrl = st.url,
+                            audioUrl = null,
+                            providerType = ProviderType.DIRECT,
+                            headers = st.headers,
+                            sourceName = "OlaMovies (Server)",
+                            releaseTitle = meta.title
+                        )
+                    )
+                }
+            }
+            if (cinemaOptions.isEmpty() && tmdbId.isNotBlank() && context != null) {
                 val tmdbReq = com.example.extractor.tmdbembed.TMDBMediaRequest(
                     tmdbId = tmdbId,
                     mediaType = if (meta.isSeries) "tv" else "movie",
@@ -1675,7 +1724,12 @@ object OlaMoviesProvider {
             )
         }
 
-        val primary = streamOptions.first()
+        // Never give the player an unresolved "olamovies_resolve::" placeholder (= stuck at 0:00).
+        val primary = streamOptions.firstOrNull { it.videoUrl?.startsWith("olamovies_resolve::") == false }
+            ?: throw OlaMoviesException(
+                "Found ${meta.directLinks.size} releases but none resolved to a playable link: " +
+                    (lastResolveError ?: "hosters returned nothing")
+            )
         val fullDescription = buildString {
             if (meta.rating.isNotBlank()) append("IMDb ★ ${meta.rating}\n")
             if (meta.cast.isNotEmpty()) append("Cast: ${meta.cast.joinToString(", ")}\n\n")
@@ -1708,4 +1762,3 @@ object OlaMoviesProvider {
         )
     }
 }
-

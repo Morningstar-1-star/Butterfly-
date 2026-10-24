@@ -54,6 +54,7 @@ class PlaybackSession(private val appContext: Context) {
     private var progressTrackingJob: Job? = null
     private var autoHideControlsJob: Job? = null
     private var videoEffectsJob: Job? = null
+    private var fallbackJob: Job? = null
     private var hasAppliedCustomEffects = false
     private val urlRetryCountMap = java.util.concurrent.ConcurrentHashMap<String, Int>()
 
@@ -322,12 +323,14 @@ class PlaybackSession(private val appContext: Context) {
                     recoveryManager.markStreamFailed(ytdlKey)
                     Log.i("PlaybackSession", "All direct Bilibili streams failed. Initiating YtDlpResolver emergency fallback for $bvidOrUrl")
                     _playerError.value = "Direct stream failed. Resolving alternate via yt-dlp..."
-                    scope.launch(Dispatchers.IO) {
+                    fallbackJob?.cancel()
+                    fallbackJob = scope.launch(Dispatchers.IO) {
                         try {
                             val fullUrl = if (bvidOrUrl.startsWith("http", ignoreCase = true)) bvidOrUrl else "https://www.bilibili.com/video/$bvidOrUrl"
                             val ytRes = YtDlpResolver.extractStreamInfo(appContext, fullUrl)
                             if (ytRes is YouTubeExtractorHelper.ExtractionResult.Success && ytRes.streamData.availableStreamOptions.isNotEmpty()) {
                                 withContext(Dispatchers.Main) {
+                                    if (_activeStreamData.value?.videoId != bvidOrUrl) return@withContext
                                     _playerError.value = null
                                     val ytData = ytRes.streamData.copy(
                                         providerId = "bilibili",
@@ -344,6 +347,7 @@ class PlaybackSession(private val appContext: Context) {
                             Log.w("PlaybackSession", "YtDlpResolver emergency fallback failed: ${e.message}")
                         }
                         withContext(Dispatchers.Main) {
+                            if (_activeStreamData.value?.videoId != bvidOrUrl) return@withContext
                             val hostMsg = if (host != "unknown") " [$host, $protocol, ${error.errorCodeName}]" else ""
                             _playerError.value = "Bilibili playback failed$hostMsg: $diagnostics"
                             _isPlaying.value = false
@@ -464,8 +468,17 @@ class PlaybackSession(private val appContext: Context) {
         initialPos: Long = 0L,
         hlsUrl: String? = null
     ) {
+        fallbackJob?.cancel()
+        fallbackJob = null
         val player = getExoPlayer()
         val previousVideoId = _activeStreamData.value?.videoId
+        if (previousVideoId != null && streamData?.videoId != null && previousVideoId != streamData.videoId) {
+            urlRetryCountMap.clear()
+            currentLoadedMediaKey = null
+            player.playWhenReady = false
+            player.stop()
+            player.clearMediaItems()
+        }
         _activeStreamData.value = if (streamData != null && streamOption != null && streamData.selectedStreamOption != streamOption) {
             streamData.copy(selectedStreamOption = streamOption)
         } else {
@@ -499,7 +512,7 @@ class PlaybackSession(private val appContext: Context) {
         }
 
         val effectivePlayableUrl = rawUrl
-        val mediaKey = "${effectivePlayableUrl}_${captionOption?.languageCode}"
+        val mediaKey = "${streamData?.videoId}_${effectivePlayableUrl}_${captionOption?.languageCode}"
         if (mediaKey == currentLoadedMediaKey && player.playbackState != Player.STATE_IDLE && player.playbackState != Player.STATE_ENDED) {
             player.playWhenReady = true
             _isPlaying.value = true
@@ -888,6 +901,9 @@ class PlaybackSession(private val appContext: Context) {
 
     fun stopAndClear() {
         autoHideControlsJob?.cancel()
+        fallbackJob?.cancel()
+        fallbackJob = null
+        urlRetryCountMap.clear()
         resumeController.clearPendingResumePosition()
         _activeStreamData.value?.videoId?.let { vid ->
             resumeController.onPositionUpdate(vid, _currentPositionMs.value, _durationMs.value)
@@ -901,6 +917,7 @@ class PlaybackSession(private val appContext: Context) {
         _bufferedPositionMs.value = 0L
         _bufferedFraction.value = 0f
         _isPlaying.value = false
+        _isBuffering.value = false
         _firstFrameRendered.value = false
         _playerError.value = null
         com.example.smartskip.SmartSkipPlayerEngine.reset()

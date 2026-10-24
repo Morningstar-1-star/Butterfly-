@@ -7,16 +7,24 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 /**
  * Pure REST client for Butterfly-MediaServer (https://github.com/Morningstar-1-star/Butterfly-MediaServer).
@@ -33,18 +41,45 @@ import java.util.concurrent.TimeUnit
 object VegaProviderClient {
     private const val TAG = "VegaProviderClient"
 
-    const val DEFAULT_SERVER_URL = "https://butterfly-mediaserver.onrender.com"
+    const val DEFAULT_SERVER_URL = "https://butterfly-mediaserver-1.onrender.com"
 
     @Volatile
     var isVegaGloballyEnabled: Boolean = true
 
     private val client: OkHttpClient = OkHttpClient.Builder()
+        .dispatcher(Dispatcher().apply {
+            maxRequests = 64
+            maxRequestsPerHost = 32
+        })
         .dns(com.example.util.SecureDnsManager.appDns)
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
+
+    private suspend fun Call.executeCancellable(): Response = suspendCancellableCoroutine { cont ->
+        cont.invokeOnCancellation {
+            try {
+                cancel()
+            } catch (_: Throwable) {}
+        }
+        enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                if (cont.isActive) {
+                    cont.resumeWithException(e)
+                }
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                if (cont.isActive) {
+                    cont.resume(response)
+                } else {
+                    response.close()
+                }
+            }
+        })
+    }
 
     fun getDefaultServerUrl(): String {
         return AppConfig.getVegaServerUrl().trimEnd('/').ifBlank { DEFAULT_SERVER_URL }
@@ -67,7 +102,7 @@ object VegaProviderClient {
                 .url("$base/health")
                 .header("Accept", "application/json")
                 .build()
-            val ok = client.newCall(req).execute().use { resp ->
+            val ok = client.newCall(req).executeCancellable().use { resp ->
                 resp.isSuccessful
             }
             if (ok) return@withContext true
@@ -76,7 +111,7 @@ object VegaProviderClient {
                 .url("$base/providers")
                 .header("Accept", "application/json")
                 .build()
-            client.newCall(reqFallback).execute().use { resp ->
+            client.newCall(reqFallback).executeCancellable().use { resp ->
                 resp.isSuccessful
             }
         } catch (e: CancellationException) {
@@ -94,7 +129,7 @@ object VegaProviderClient {
                     .url("$base/providers")
                     .header("Accept", "application/json")
                     .build()
-                client.newCall(request).execute().use { response ->
+                client.newCall(request).executeCancellable().use { response ->
                     if (response.isSuccessful) {
                         val body = response.body?.string() ?: ""
                         val trimmed = body.trim()
@@ -153,7 +188,6 @@ object VegaProviderClient {
         providerId: String,
         serverUrl: String = getDefaultServerUrl()
     ): List<VegaSearchResult> = withContext(Dispatchers.IO) {
-        if (!isVegaGloballyEnabled) return@withContext emptyList()
         val base = serverUrl.trimEnd('/')
         if (base.isBlank()) return@withContext emptyList()
 
@@ -169,7 +203,7 @@ object VegaProviderClient {
         serverUrl: String = getDefaultServerUrl(),
         page: Int = 1
     ): List<VegaSearchResult> = withContext(Dispatchers.IO) {
-        if (!isVegaGloballyEnabled || query.isBlank()) return@withContext emptyList()
+        if (query.isBlank()) return@withContext emptyList()
         val base = serverUrl.trimEnd('/')
         if (base.isBlank()) return@withContext emptyList()
 
@@ -181,7 +215,7 @@ object VegaProviderClient {
                 .url(url)
                 .header("Accept", "application/json")
                 .build()
-            client.newCall(req).execute().use { resp ->
+            client.newCall(req).executeCancellable().use { resp ->
                 if (resp.isSuccessful) {
                     val body = resp.body?.string() ?: return@withContext emptyList()
                     return@withContext parseSearchItems(body, providerId)
@@ -200,7 +234,7 @@ object VegaProviderClient {
         providerIds: List<String>,
         serverUrl: String = getDefaultServerUrl()
     ): List<VegaSearchResult> = coroutineScope {
-        if (!isVegaGloballyEnabled || query.isBlank() || providerIds.isEmpty()) return@coroutineScope emptyList()
+        if (query.isBlank() || providerIds.isEmpty()) return@coroutineScope emptyList()
         val semaphore = Semaphore(4)
         providerIds.take(8).map { id ->
             async(Dispatchers.IO) {
@@ -216,7 +250,7 @@ object VegaProviderClient {
         link: String,
         serverUrl: String = getDefaultServerUrl()
     ): VegaMetaResult? = withContext(Dispatchers.IO) {
-        if (!isVegaGloballyEnabled || link.isBlank()) return@withContext null
+        if (link.isBlank()) return@withContext null
         val base = serverUrl.trimEnd('/')
         if (base.isBlank()) return@withContext null
 
@@ -228,7 +262,7 @@ object VegaProviderClient {
                 .url(url)
                 .header("Accept", "application/json")
                 .build()
-            client.newCall(req).execute().use { resp ->
+            client.newCall(req).executeCancellable().use { resp ->
                 if (resp.isSuccessful) {
                     val body = resp.body?.string() ?: return@withContext null
                     val root = JSONObject(body)
@@ -251,7 +285,7 @@ object VegaProviderClient {
         episodesUrl: String,
         serverUrl: String = getDefaultServerUrl()
     ): List<VegaEpisode> = withContext(Dispatchers.IO) {
-        if (!isVegaGloballyEnabled || episodesUrl.isBlank()) return@withContext emptyList()
+        if (episodesUrl.isBlank()) return@withContext emptyList()
         val base = serverUrl.trimEnd('/')
         if (base.isBlank()) return@withContext emptyList()
 
@@ -263,7 +297,7 @@ object VegaProviderClient {
                 .url(url)
                 .header("Accept", "application/json")
                 .build()
-            client.newCall(req).execute().use { resp ->
+            client.newCall(req).executeCancellable().use { resp ->
                 if (resp.isSuccessful) {
                     val body = resp.body?.string() ?: return@withContext emptyList()
                     val root = JSONObject(body)
@@ -300,7 +334,7 @@ object VegaProviderClient {
         serverUrl: String = getDefaultServerUrl(),
         type: String = "movie"
     ): List<VegaStreamResult> = withContext(Dispatchers.IO) {
-        if (!isVegaGloballyEnabled || link.isBlank()) return@withContext emptyList()
+        if (link.isBlank()) return@withContext emptyList()
         val base = serverUrl.trimEnd('/')
         if (base.isBlank()) return@withContext emptyList()
 
@@ -313,7 +347,7 @@ object VegaProviderClient {
                 .url(url)
                 .header("Accept", "application/json")
                 .build()
-            client.newCall(req).execute().use { resp ->
+            client.newCall(req).executeCancellable().use { resp ->
                 if (resp.isSuccessful) {
                     val body = resp.body?.string() ?: return@withContext emptyList()
                     val root = JSONObject(body)
@@ -334,6 +368,88 @@ object VegaProviderClient {
     }
 
     /**
+     * One-call resolver on Butterfly-MediaServer: GET /unified
+     * Runs Nuvio (by TMDB id) + the given Vega providers (by title match) and returns real stream URLs.
+     */
+    suspend fun resolveUnified(
+        title: String,
+        tmdbId: String = "",
+        isTv: Boolean = false,
+        season: Int = 1,
+        episode: Int = 1,
+        vegaProviders: String = "drive,hdhub4u,4khdhub,vega",
+        serverUrl: String = getDefaultServerUrl()
+    ): List<VegaStreamResult> = withContext(Dispatchers.IO) {
+        val base = serverUrl.trimEnd('/')
+        if (base.isBlank() || (title.isBlank() && tmdbId.isBlank())) return@withContext emptyList()
+        try {
+            val enc = StandardCharsets.UTF_8.name()
+            val sb = StringBuilder("$base/unified?type=").append(if (isTv) "tv" else "movie")
+                .append("&season=").append(season)
+                .append("&episode=").append(episode)
+                .append("&title=").append(URLEncoder.encode(title, enc))
+                .append("&vega=").append(URLEncoder.encode(vegaProviders, enc))
+            if (tmdbId.isNotBlank()) sb.append("&tmdbId=").append(URLEncoder.encode(tmdbId, enc))
+            val req = Request.Builder().url(sb.toString()).header("Accept", "application/json").build()
+            val slowClient = client.newBuilder()
+                .connectTimeout(40, TimeUnit.SECONDS)
+                .readTimeout(100, TimeUnit.SECONDS)
+                .build()
+            slowClient.newCall(req).executeCancellable().use { resp ->
+                val body = resp.body?.string() ?: return@withContext emptyList()
+                val root = JSONObject(body)
+                if (resp.isSuccessful && root.optBoolean("success", false)) {
+                    val arr = root.optJSONArray("streams") ?: return@withContext emptyList()
+                    return@withContext parseStreamsArray(arr)
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Butterfly-MediaServer resolveUnified failed: ${e.message}")
+        }
+        emptyList()
+    }
+
+    /** One-call Nuvio resolver on Butterfly-MediaServer: GET /nuvio/resolve (needs the updated server.js). */
+    suspend fun resolveNuvio(
+        tmdbId: String,
+        isTv: Boolean,
+        season: Int = 1,
+        episode: Int = 1,
+        providerId: String? = null,
+        serverUrl: String = getDefaultServerUrl()
+    ): List<VegaStreamResult> = withContext(Dispatchers.IO) {
+        val base = serverUrl.trimEnd('/')
+        if (base.isBlank() || tmdbId.isBlank()) return@withContext emptyList()
+        try {
+            val sb = StringBuilder("$base/nuvio/resolve?tmdbId=")
+                .append(URLEncoder.encode(tmdbId, StandardCharsets.UTF_8.name()))
+                .append("&type=").append(if (isTv) "tv" else "movie")
+                .append("&season=").append(season)
+                .append("&episode=").append(episode)
+            if (!providerId.isNullOrBlank()) {
+                sb.append("&providers=").append(URLEncoder.encode(providerId, StandardCharsets.UTF_8.name()))
+            }
+            val req = Request.Builder().url(sb.toString()).header("Accept", "application/json").build()
+            val slowClient = client.newBuilder().readTimeout(90, TimeUnit.SECONDS).build()
+            slowClient.newCall(req).executeCancellable().use { resp ->
+                val body = resp.body?.string() ?: return@withContext emptyList()
+                val root = JSONObject(body)
+                if (resp.isSuccessful && root.optBoolean("success", false)) {
+                    val arr = root.optJSONArray("streams") ?: return@withContext emptyList()
+                    return@withContext parseStreamsArray(arr)
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "Butterfly-MediaServer resolveNuvio failed: ${e.message}")
+        }
+        emptyList()
+    }
+
+    /**
      * Resolves a full playback pipeline via Butterfly-MediaServer's canonical routes:
      * - If given a search query, searches `/search/:provider?q=` first to get the post page URL.
      * - Calls `/resolve/:provider?link=<postPageUrl>&episodeIndex=<episodeIndex>&tryAll=true`
@@ -345,13 +461,6 @@ object VegaProviderClient {
         serverUrl: String = getDefaultServerUrl(),
         episodeIndex: Int = 0
     ): VegaPlaybackResolution = withContext(Dispatchers.IO) {
-        if (!isVegaGloballyEnabled) {
-            return@withContext VegaPlaybackResolution(
-                success = false,
-                stageReached = "DISABLED",
-                errorMessage = "Butterfly-MediaServer providers are disabled"
-            )
-        }
         val base = serverUrl.trimEnd('/')
         val cleanInput = linkOrQuery.trim()
         val encProv = URLEncoder.encode(providerId.trim(), StandardCharsets.UTF_8.name())
@@ -376,7 +485,7 @@ object VegaProviderClient {
                 .url(resolveUrl)
                 .header("Accept", "application/json")
                 .build()
-            client.newCall(req).execute().use { resp ->
+            client.newCall(req).executeCancellable().use { resp ->
                 val body = resp.body?.string() ?: "{}"
                 val root = JSONObject(body)
                 if (resp.isSuccessful && root.optBoolean("success", false)) {

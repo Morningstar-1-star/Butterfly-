@@ -3027,16 +3027,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private var activePlaybackJob: Job? = null
+    private var selectStreamJob: Job? = null
+    private var backgroundSourceDiscoveryJob: Job? = null
 
     fun closeVideo() {
         activePlaybackJob?.cancel()
         activePlaybackJob = null
+        selectStreamJob?.cancel()
+        selectStreamJob = null
+        backgroundSourceDiscoveryJob?.cancel()
+        backgroundSourceDiscoveryJob = null
+        unifiedResolutionJob?.cancel()
+        unifiedResolutionJob = null
         com.example.ui.player.GlobalPlayerManager.stopAndClear()
         _activeVideoId.value = null
         _activeVideoItem.value = null
         _extractionResult.value = null
         _selectedStreamOption.value = null
         _selectedCaptionOption.value = null
+        _isExtracting.value = false
         _isPlaying.value = false
         if (_currentScreen.value == AppScreen.PLAYER) {
             _currentScreen.value = AppScreen.HOME
@@ -3520,19 +3529,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setActiveProvider(providerId: String) {
+        feedLoadingJob?.cancel()
+        feedLoadingJob = null
         _isLoadingTrending.value = true
         _isFeedRefreshing.value = false
         _searchResults.value = emptyList()
         _trendingVideos.value = emptyList()
         _searchQuery.value = ""
         _activeProviderId.value = providerId
+        if (providerId.startsWith("vega_")) {
+            com.example.vega.VegaProviderClient.isVegaGloballyEnabled = true
+            if (!vegaRepository.isVegaMasterEnabled()) {
+                vegaRepository.setVegaMasterEnabled(true)
+            }
+        }
         if (isAdultProviderId(providerId)) {
             _adultContentEnabled.value = true
             try {
                 // Keep persistent pref as false so app always launches in normal mode after close/reopen
                 settingsPrefs.edit().putBoolean("adult_content_enabled", false).apply()
             } catch (_: Exception) {}
-        } else if (providerId == "olamovies" || providerId == "tencent" || providerId == "youtube" || providerId == "sonyliv" || providerId == "hotstar" || providerId == "bilibili" || providerId == "amazonminitv" || providerId == "crunchyroll") {
+        } else if (providerId == "olamovies" || providerId == "tencent" || providerId == "youtube" || providerId == "sonyliv" || providerId == "hotstar" || providerId == "bilibili" || providerId == "amazonminitv" || providerId == "crunchyroll" || providerId.startsWith("vega_")) {
             _adultContentEnabled.value = false
             try {
                 settingsPrefs.edit().putBoolean("adult_content_enabled", false).apply()
@@ -4810,18 +4827,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val targetVega = when {
                             activeProv.startsWith("vega_") -> {
                                 val raw = activeProv.removePrefix("vega_")
-                                installedVega.filter { it.id.equals(raw, ignoreCase = true) }
+                                installedVega.filter { it.id.equals(raw, ignoreCase = true) }.ifEmpty {
+                                    listOf(
+                                        com.example.vega.InstalledVegaProvider(
+                                            id = raw,
+                                            name = com.example.vega.VegaProviderClient.formatProviderDisplayName(raw),
+                                            isEnabled = true
+                                        )
+                                    )
+                                }
                             }
                             activeProv == "all" -> installedVega
                             else -> emptyList()
                         }
 
+                        val currentVegaServer = vegaRepository.getServerUrl()
                         targetVega.forEach { vegaProv ->
                             launch(Dispatchers.IO) {
                                 try {
                                     val timeoutMs = if (isSpecificSource) 20000L else 15000L
                                     val vResults = kotlinx.coroutines.withTimeoutOrNull(timeoutMs) {
-                                        com.example.vega.VegaProviderClient.search(vegaProv.id, searchTarget)
+                                        com.example.vega.VegaProviderClient.search(vegaProv.id, searchTarget, currentVegaServer)
                                     } ?: emptyList()
                                     if (vResults.isNotEmpty()) {
                                         val videoItems = vResults.map { vItem ->
@@ -5040,6 +5066,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 // === PRIORITY 1: FAST PRIMARY ESSENTIAL PROVIDERS ===
                 supervisorScope {
+                    // 0. Selected Vega Provider (Instant dispatch when a specific Vega source tab is selected)
+                    if (!adultEnabled && activeProv.startsWith("vega_")) {
+                        val raw = activeProv.removePrefix("vega_")
+                        val installedVega = vegaRepository.getInstalledProviders()
+                        val targetVegaProv = installedVega.firstOrNull { it.id.equals(raw, ignoreCase = true) }
+                            ?: com.example.vega.InstalledVegaProvider(
+                                id = raw,
+                                name = com.example.vega.VegaProviderClient.formatProviderDisplayName(raw),
+                                isEnabled = true
+                            )
+                        val currentVegaServer = vegaRepository.getServerUrl()
+                        launch(Dispatchers.IO) {
+                            val vResults = fetchSafely("vega_${targetVegaProv.id}", 18000L) {
+                                val list = com.example.vega.VegaProviderClient.getHomeContent(targetVegaProv.id, currentVegaServer)
+                                list.map { vItem ->
+                                    val isTv = vItem.title.contains("season", ignoreCase = true) || vItem.title.contains("series", ignoreCase = true) || vItem.title.contains("s0", ignoreCase = true)
+                                    val studio = com.example.util.StudioDetector.detectStudio(vItem.title, isTv)
+                                    val studioLogo = com.example.util.ChannelLogoHelper.getBrandInfo(studio, null, vItem.title).logoUrls.firstOrNull()
+                                    VideoItem(
+                                        id = "vega_${targetVegaProv.id}::${vItem.link}",
+                                        title = vItem.title,
+                                        uploaderName = studio,
+                                        uploaderAvatarUrl = studioLogo,
+                                        thumbnailUrl = vItem.imageUrl ?: "",
+                                        durationSeconds = -1L,
+                                        providerId = "vega_${targetVegaProv.id}"
+                                    )
+                                }
+                            }
+                            if (vResults.isNotEmpty()) {
+                                updateFeedProgressively(vResults)
+                            }
+                        }
+                    }
+
                     // 1. YouTube (Instant dispatch - Mainstream only)
                     if (!adultEnabled && (activeProv == "all" || activeProv == "youtube") && enabledSet.contains("youtube")) {
                         launch(Dispatchers.IO) {
@@ -5227,21 +5288,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
 
-                    // Vega Providers
+                    // Vega Providers (for "all" aggregated feed; specific vega_ tabs are already dispatched in Priority 1)
                     val installedVega = vegaRepository.getInstalledProviders().filter { it.isEnabled }
                     val targetVega = when {
-                        activeProv.startsWith("vega_") -> {
-                            val raw = activeProv.removePrefix("vega_")
-                            installedVega.filter { it.id.equals(raw, ignoreCase = true) }
-                        }
                         activeProv == "all" -> installedVega.take(3)
                         else -> emptyList()
                     }
+                    val currentVegaServer = vegaRepository.getServerUrl()
 
                     targetVega.forEach { vegaProv ->
                         launch(Dispatchers.IO) {
                             val vResults = fetchSafely("vega_${vegaProv.id}", 15000L) {
-                                val list = com.example.vega.VegaProviderClient.getHomeContent(vegaProv.id)
+                                val list = com.example.vega.VegaProviderClient.getHomeContent(vegaProv.id, currentVegaServer)
                                 list.map { vItem ->
                                     val isTv = vItem.title.contains("season", ignoreCase = true) || vItem.title.contains("series", ignoreCase = true) || vItem.title.contains("s0", ignoreCase = true)
                                     val studio = com.example.util.StudioDetector.detectStudio(vItem.title, isTv)
@@ -5746,7 +5804,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _isFeedRefreshing.value = false
         _isLoadingTrending.value = false
 
-        if (cleanIdOrUrl == _activeVideoId.value && _extractionResult.value is YouTubeExtractorHelper.ExtractionResult.Success) {
+        if (cleanIdOrUrl == _activeVideoId.value &&
+            _extractionResult.value is YouTubeExtractorHelper.ExtractionResult.Success &&
+            com.example.ui.player.GlobalPlayerManager.hasLoadedMedia() &&
+            com.example.ui.player.GlobalPlayerManager.activeStreamData.value?.videoId == cleanIdOrUrl
+        ) {
             _currentScreen.value = AppScreen.PLAYER
             _isPlaying.value = true
             com.example.ui.player.GlobalPlayerManager.play()
@@ -5756,6 +5818,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Immediately cancel any in-flight extraction / playback preparation
         activePlaybackJob?.cancel()
         activePlaybackJob = null
+        selectStreamJob?.cancel()
+        selectStreamJob = null
+        backgroundSourceDiscoveryJob?.cancel()
+        backgroundSourceDiscoveryJob = null
+        fallbackAttemptsCount = 0
 
         // Immediately halt and clear any ongoing ExoPlayer or WebView playback
         com.example.ui.player.GlobalPlayerManager.stopAndClear()
@@ -6143,6 +6210,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // Ensure native ExoPlayer is always active, clear any embed webview candidate
                     unifiedPlayback.setActiveCandidate(null)
 
+                    // Immediately start playback on GlobalPlayerManager for the newly extracted video
+                    if (primary != null) {
+                        withContext(Dispatchers.Main) {
+                            if (_activeVideoId.value == cleanIdOrUrl) {
+                                selectStreamOption(primary)
+                            }
+                        }
+                    }
+
                     val streamThumb = result.streamData.thumbnailUrl?.takeIf { it.isNotBlank() && !it.contains("blank.gif") && !it.contains("loading.gif") }
                     val currentActive = _activeVideoItem.value
 
@@ -6325,11 +6401,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     rawVideoId
                 }
                 Log.w("MainViewModel", "[Fallback] HTTP $errorCode / formats exhausted for video $targetForYtDlp. Triggering yt-dlp resolver recovery...")
-                viewModelScope.launch(Dispatchers.IO) {
+                val fallbackVideoId = _activeVideoId.value
+                selectStreamJob?.cancel()
+                selectStreamJob = viewModelScope.launch(Dispatchers.IO) {
                     try {
                         val ytDlpResult = com.example.extractor.YtDlpResolver.extractStreamInfo(getApplication(), targetForYtDlp)
                         if (ytDlpResult is YouTubeExtractorHelper.ExtractionResult.Success) {
                             withContext(Dispatchers.Main) {
+                                if (_activeVideoId.value != fallbackVideoId) return@withContext
                                 _extractionResult.value = ytDlpResult
                                 val bestOption = ytDlpResult.streamData.selectedStreamOption
                                     ?: ytDlpResult.streamData.availableStreamOptions.firstOrNull { it.isMuxed && !(it.videoUrl ?: it.audioUrl).isNullOrBlank() }
@@ -6357,10 +6436,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun selectStreamOption(option: PlayableStreamOption) {
+        selectStreamJob?.cancel()
+        selectStreamJob = null
         _selectedStreamOption.value = option
+        val targetVideoId = _activeVideoId.value
         val ext = _extractionResult.value
         if (ext is YouTubeExtractorHelper.ExtractionResult.Success) {
-            val currentPos = com.example.ui.player.GlobalPlayerManager.currentPositionMs.value.coerceAtLeast(0L)
+            val isSamePlayingVideo = com.example.ui.player.GlobalPlayerManager.activeStreamData.value?.videoId == ext.streamData.videoId
+            val currentPos = if (isSamePlayingVideo) {
+                com.example.ui.player.GlobalPlayerManager.currentPositionMs.value.coerceAtLeast(0L)
+            } else {
+                0L
+            }
             val updatedStreamData = ext.streamData.copy(selectedStreamOption = option)
             _extractionResult.value = YouTubeExtractorHelper.ExtractionResult.Success(updatedStreamData)
 
@@ -6374,12 +6461,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     url.contains("vidlink.", true)) && !url.contains(".m3u8", true) && !url.contains(".mp4", true)
 
             if (isEmbedUrl && url.startsWith("http")) {
-                viewModelScope.launch {
+                selectStreamJob = viewModelScope.launch {
                     val sniffed = try {
                         com.example.extractor.vidsrc.VidSrcStreamExtractor.sniffEmbedUrl(getApplication(), url)
                     } catch (e: Exception) {
                         null
                     }
+                    if (_activeVideoId.value != targetVideoId) return@launch
                     val playableOpt = if (sniffed != null && !sniffed.videoUrl.isNullOrBlank()) {
                         option.copy(
                             videoUrl = sniffed.videoUrl,
@@ -6409,14 +6497,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             // Handle OlaMovies on-demand quality/episode link resolution (Stage 2)
             if (url.startsWith("olamovies_resolve::")) {
-                viewModelScope.launch(Dispatchers.IO) {
+                selectStreamJob = viewModelScope.launch(Dispatchers.IO) {
                     try {
                         val parts = url.removePrefix("olamovies_resolve::").split("::", limit = 3)
-                        val shortenerUrl = parts.getOrNull(0).orEmpty()
                         val label = parts.getOrNull(1).orEmpty().ifBlank { option.qualityLabel }
-                        val parentPath = parts.getOrNull(2).orEmpty()
                         withContext(Dispatchers.Main) {
-                            android.widget.Toast.makeText(getApplication(), "Resolving OlaMovies stream ($label)...", android.widget.Toast.LENGTH_SHORT).show()
+                            if (_activeVideoId.value == targetVideoId) {
+                                android.widget.Toast.makeText(getApplication(), "Resolving OlaMovies stream ($label)...", android.widget.Toast.LENGTH_SHORT).show()
+                            }
                         }
                         val streamData = com.example.extractor.OlaMoviesProvider.getStreamData(url, getApplication())
                         val primary = streamData.selectedStreamOption
@@ -6428,6 +6516,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             format = if (isHls) "hls" else primary.format.ifBlank { "mkv" }
                         )
                         withContext(Dispatchers.Main) {
+                            if (_activeVideoId.value != targetVideoId) return@withContext
                             _selectedStreamOption.value = playableOption
                             val freshSuccess = _extractionResult.value as? YouTubeExtractorHelper.ExtractionResult.Success
                             if (freshSuccess != null) {
@@ -6451,13 +6540,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 )
                             }
                         }
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         withContext(Dispatchers.Main) {
-                            android.widget.Toast.makeText(
-                                getApplication(),
-                                "OlaMovies playback failed: ${e.message ?: "Unable to resolve stream"}",
-                                android.widget.Toast.LENGTH_LONG
-                            ).show()
+                            if (_activeVideoId.value == targetVideoId) {
+                                android.widget.Toast.makeText(
+                                    getApplication(),
+                                    "OlaMovies playback failed: ${e.message ?: "Unable to resolve stream"}",
+                                    android.widget.Toast.LENGTH_LONG
+                                ).show()
+                            }
                         }
                     }
                 }
@@ -6466,7 +6559,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             // Handle Vega stream resolution if url is encoded with vega_
             if (url.startsWith("vega_") || url.startsWith("vega://") || (!url.startsWith("http") && option.providerType == com.example.model.ProviderType.VEGA)) {
-                viewModelScope.launch(Dispatchers.IO) {
+                selectStreamJob = viewModelScope.launch(Dispatchers.IO) {
                     try {
                         val raw = url.removePrefix("vega://").removePrefix("vega_")
                         val parts = raw.split("::")
@@ -6475,7 +6568,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val targetLink = if (parts.size >= 3) parts[2] else postLink
 
                         withContext(Dispatchers.Main) {
-                            android.widget.Toast.makeText(getApplication(), "Connecting to Butterfly-MediaServer ($provId)...", android.widget.Toast.LENGTH_SHORT).show()
+                            if (_activeVideoId.value == targetVideoId) {
+                                android.widget.Toast.makeText(getApplication(), "Connecting to Butterfly-MediaServer ($provId)...", android.widget.Toast.LENGTH_SHORT).show()
+                            }
                         }
 
                         val currentServer = vegaRepository.getServerUrl()
@@ -6491,6 +6586,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 headers = st.headers
                             )
                             withContext(Dispatchers.Main) {
+                                if (_activeVideoId.value != targetVideoId) return@withContext
                                 _selectedStreamOption.value = playableOption
                                 val freshSuccess = _extractionResult.value as? YouTubeExtractorHelper.ExtractionResult.Success
                                 if (freshSuccess != null) {
@@ -6508,12 +6604,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             }
                         } else {
                             withContext(Dispatchers.Main) {
-                                android.widget.Toast.makeText(getApplication(), "Butterfly-MediaServer stream note: ${res?.errorMessage ?: "Direct stream link expired"}", android.widget.Toast.LENGTH_LONG).show()
+                                if (_activeVideoId.value == targetVideoId) {
+                                    android.widget.Toast.makeText(getApplication(), "Butterfly-MediaServer stream note: ${res?.errorMessage ?: "Direct stream link expired"}", android.widget.Toast.LENGTH_LONG).show()
+                                }
                             }
                         }
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         withContext(Dispatchers.Main) {
-                            android.widget.Toast.makeText(getApplication(), "Could not play stream: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                            if (_activeVideoId.value == targetVideoId) {
+                                android.widget.Toast.makeText(getApplication(), "Could not play stream: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                            }
                         }
                     }
                 }
@@ -6549,7 +6651,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val cleanSearch = com.example.util.StreamCategorizer.extractCleanSearchTitle(title)
         if (cleanSearch.isBlank()) return
 
-        viewModelScope.launch(Dispatchers.IO) {
+        backgroundSourceDiscoveryJob?.cancel()
+        backgroundSourceDiscoveryJob = viewModelScope.launch(Dispatchers.IO) {
             try {
                 val discovered = java.util.Collections.synchronizedList(mutableListOf<PlayableStreamOption>())
 

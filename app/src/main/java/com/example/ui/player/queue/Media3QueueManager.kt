@@ -485,7 +485,15 @@ class Media3QueueManager(
         _currentQueueIndex.value = 0
         _hasNextItem.value = false
         _hasPreviousItem.value = false
+        try {
+            concatenatingMediaSource.clear()
+        } catch (_: Exception) {}
         concatenatingMediaSource = ConcatenatingMediaSource()
+        try {
+            exoPlayer?.playWhenReady = false
+            exoPlayer?.stop()
+            exoPlayer?.clearMediaItems()
+        } catch (_: Exception) {}
     }
 
     /**

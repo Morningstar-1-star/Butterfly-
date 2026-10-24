@@ -46,9 +46,10 @@ object ProviderIsolationController {
         identity: MediaIdentity
     ): Flow<List<SourceCandidate>> = flow {
         val pid = provider.id.lowercase()
+        val isUmbrellaProvider = pid == "vega" || pid == "nuvio_direct" || pid == "tmdb_embed"
 
-        // 1. Circuit Breaker Check
-        if (ProviderHealthManager.isQuarantined(pid)) {
+        // 1. Circuit Breaker Check (never quarantine umbrella adapters that aggregate independent sub-providers)
+        if (!isUmbrellaProvider && ProviderHealthManager.isQuarantined(pid)) {
             Log.d(TAG, "Skipping quarantined provider: $pid")
             emit(emptyList())
             return@flow

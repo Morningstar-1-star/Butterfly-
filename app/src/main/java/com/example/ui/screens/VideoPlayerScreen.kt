@@ -362,6 +362,9 @@ fun VideoPlayerScreen(
     val bgOverlayAlpha = (1.0f - dragFraction * 1.3f).coerceIn(0f, 1f)
 
     val minimizePlayerAction: () -> Unit = {
+        coroutineScope.launch {
+            dragOffsetY.snapTo(0f)
+        }
         onBackClick()
     }
 

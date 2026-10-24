@@ -940,7 +940,11 @@ fun HomeScreen(
 
         // LAYER 3: PERSISTENT FLOATING PIP MINI PLAYER OVERLAY (YouTube Style)
         val activeStreamData by com.example.ui.player.GlobalPlayerManager.activeStreamData.collectAsState()
-        val playingStreamData = activeStreamData ?: currentStreamData
+        val playingStreamData = if (activeVideoId != null) {
+            (activeStreamData?.takeIf { it.videoId == activeVideoId }) ?: (currentStreamData?.takeIf { it.videoId == activeVideoId })
+        } else {
+            null
+        }
         val statusBarTopPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
         AnimatedVisibility(

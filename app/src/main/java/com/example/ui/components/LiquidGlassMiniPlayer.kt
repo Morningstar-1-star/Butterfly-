@@ -177,36 +177,10 @@ fun LiquidGlassMiniPlayer(
         val playerW = animWidth.value
         val playerH = playerW / activeAspectRatio
 
-        val dismissWithAnimation: (directionX: Float, directionY: Float) -> Unit = { dirX, dirY ->
+        val dismissWithAnimation: (directionX: Float, directionY: Float) -> Unit = { _, _ ->
             if (!isDismissing) {
                 isDismissing = true
-                coroutineScope.launch {
-                    val targetX = if (dirX > 0) parentWidthPx + 120f else if (dirX < 0) -playerW - 120f else animX.value
-                    val targetY = if (dirY > 0) parentHeightPx + 120f else animY.value
-                    launch {
-                        if (dirX != 0f) {
-                            animX.animateTo(
-                                targetValue = targetX,
-                                animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow),
-                                initialVelocity = dirX
-                            )
-                        }
-                    }
-                    launch {
-                        if (dirY != 0f) {
-                            animY.animateTo(
-                                targetValue = targetY,
-                                animationSpec = spring(dampingRatio = 0.85f, stiffness = Spring.StiffnessMediumLow),
-                                initialVelocity = dirY
-                            )
-                        }
-                    }
-                    launch {
-                        enterAlpha.animateTo(0f, tween(140, easing = FastOutSlowInEasing))
-                    }
-                    delay(140L)
-                    onClose()
-                }
+                onClose()
             }
         }
 

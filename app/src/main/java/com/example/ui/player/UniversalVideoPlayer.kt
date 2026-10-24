@@ -328,15 +328,21 @@ fun UniversalVideoPlayer(
     }
 
     LaunchedEffect(streamOption?.videoUrl, streamOption?.videoStream?.url, hlsUrl, captionOption?.languageCode, videoId, streamData?.videoId) {
+        val targetStreamData = streamData ?: return@LaunchedEffect
+        if (videoId != null && targetStreamData.videoId != videoId) {
+            return@LaunchedEffect
+        }
         val playUrl = streamOption?.videoUrl ?: streamOption?.videoStream?.url ?: hlsUrl
         if (playUrl.isNullOrBlank()) {
+            return@LaunchedEffect
+        }
+        if (playUrl.startsWith("vega_") || playUrl.startsWith("vega://") || playUrl.startsWith("olamovies_resolve::")) {
             return@LaunchedEffect
         }
         val curStream = GlobalPlayerManager.activeStreamData.value
         val isSameVideo = curStream != null && (
             (videoId != null && curStream.videoId == videoId) ||
-            (streamData?.videoId != null && curStream.videoId == streamData.videoId) ||
-            (videoId == null && streamData?.videoId == null && curStream.selectedStreamOption?.videoUrl == playUrl)
+            (curStream.videoId == targetStreamData.videoId)
         )
         val activeOptionUrl = curStream?.selectedStreamOption?.videoUrl
             ?: curStream?.selectedStreamOption?.videoStream?.url
@@ -357,7 +363,7 @@ fun UniversalVideoPlayer(
         }
         GlobalPlayerManager.prepareAndPlay(
             context = context,
-            streamData = streamData ?: activeStreamData,
+            streamData = targetStreamData,
             streamOption = streamOption,
             hlsUrl = hlsUrl,
             captionOption = captionOption,

@@ -12,7 +12,7 @@ class VegaProviderRepository(private val context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     private val _isVegaMasterEnabled = MutableStateFlow(
-        prefs.getBoolean(KEY_VEGA_MASTER_ENABLED, false)
+        prefs.getBoolean(KEY_VEGA_MASTER_ENABLED, true)
     )
     val isVegaMasterEnabled: StateFlow<Boolean> = _isVegaMasterEnabled.asStateFlow()
 
@@ -20,9 +20,18 @@ class VegaProviderRepository(private val context: Context) {
     val installedProviders: StateFlow<List<InstalledVegaProvider>> = _installedProviders.asStateFlow()
 
     private val _serverUrl = MutableStateFlow(
-        prefs.getString(KEY_SERVER_URL, VegaProviderClient.DEFAULT_SERVER_URL)
-            ?.ifBlank { VegaProviderClient.DEFAULT_SERVER_URL }
-            ?: VegaProviderClient.DEFAULT_SERVER_URL
+        run {
+            val saved = prefs.getString(KEY_SERVER_URL, VegaProviderClient.DEFAULT_SERVER_URL)
+                ?.trim()?.trimEnd('/')
+                ?.ifBlank { VegaProviderClient.DEFAULT_SERVER_URL }
+                ?: VegaProviderClient.DEFAULT_SERVER_URL
+            if (saved.equals("https://butterfly-mediaserver.onrender.com", ignoreCase = true)) {
+                prefs.edit().putString(KEY_SERVER_URL, VegaProviderClient.DEFAULT_SERVER_URL).apply()
+                VegaProviderClient.DEFAULT_SERVER_URL
+            } else {
+                saved
+            }
+        }
     )
     val serverUrl: StateFlow<String> = _serverUrl.asStateFlow()
 
@@ -34,6 +43,10 @@ class VegaProviderRepository(private val context: Context) {
 
         // Sync global flag on startup
         loadInstalledProviders()
+        if (_installedProviders.value.isNotEmpty() && !_isVegaMasterEnabled.value) {
+            _isVegaMasterEnabled.value = true
+            prefs.edit().putBoolean(KEY_VEGA_MASTER_ENABLED, true).apply()
+        }
         VegaProviderClient.isVegaGloballyEnabled = _isVegaMasterEnabled.value
     }
 
@@ -58,19 +71,6 @@ class VegaProviderRepository(private val context: Context) {
     }
 
     private fun loadInstalledProviders() {
-        val cleanStartInitialized = prefs.getBoolean("vega_clean_start_v4", false)
-        if (!cleanStartInitialized) {
-            _installedProviders.value = emptyList()
-            _isVegaMasterEnabled.value = false
-            VegaProviderClient.isVegaGloballyEnabled = false
-            prefs.edit()
-                .putString(KEY_INSTALLED_PROVIDERS, "[]")
-                .putBoolean(KEY_VEGA_MASTER_ENABLED, false)
-                .putBoolean("vega_clean_start_v4", true)
-                .apply()
-            return
-        }
-
         val jsonStr = prefs.getString(KEY_INSTALLED_PROVIDERS, null)
         val list = mutableListOf<InstalledVegaProvider>()
 
