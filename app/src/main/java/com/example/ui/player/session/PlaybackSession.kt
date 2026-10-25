@@ -51,6 +51,18 @@ import okhttp3.Request
 class PlaybackSession(private val appContext: Context) {
 
     private val scope = CoroutineScope(Dispatchers.Main)
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    @Volatile
+    private var playbackSessionToken: Long = 0L
+
+    private inline fun runOnMain(crossinline block: () -> Unit) {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            block()
+        } else {
+            mainHandler.post { block() }
+        }
+    }
+
     private var progressTrackingJob: Job? = null
     private var autoHideControlsJob: Job? = null
     private var videoEffectsJob: Job? = null
@@ -392,13 +404,15 @@ class PlaybackSession(private val appContext: Context) {
     fun getExoPlayer(): ExoPlayer {
         if (playerCore == null) {
             playerCore = PlayerCore(appContext, playerListener)
-            val exo = playerCore!!.player!!
-            queueManager.attachPlayer(exo)
-            exo.repeatMode = if (_isLoopEnabled.value) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
-            startProgressTracker()
-            attachVideoEffectsPipeline(exo)
+            val exo = playerCore!!.ensurePlayerOnMain()
+            runOnMain {
+                queueManager.attachPlayer(exo)
+                exo.repeatMode = if (_isLoopEnabled.value) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_OFF
+                startProgressTracker()
+                attachVideoEffectsPipeline(exo)
+            }
         }
-        return playerCore!!.player!!
+        return playerCore!!.ensurePlayerOnMain()
     }
 
     private fun startProgressTracker() {
@@ -468,201 +482,218 @@ class PlaybackSession(private val appContext: Context) {
         initialPos: Long = 0L,
         hlsUrl: String? = null
     ) {
-        fallbackJob?.cancel()
-        fallbackJob = null
-        val player = getExoPlayer()
-        val previousVideoId = _activeStreamData.value?.videoId
-        if (previousVideoId != null && streamData?.videoId != null && previousVideoId != streamData.videoId) {
-            urlRetryCountMap.clear()
-            currentLoadedMediaKey = null
-            player.playWhenReady = false
-            player.stop()
-            player.clearMediaItems()
-        }
-        _activeStreamData.value = if (streamData != null && streamOption != null && streamData.selectedStreamOption != streamOption) {
-            streamData.copy(selectedStreamOption = streamOption)
-        } else {
-            streamData
-        }
-        _bilibiliSubtitleTracks.value = streamData?.captionOptions ?: emptyList()
-        _selectedSubtitleTrack.value = captionOption
-
-        val rawUrl = streamOption?.videoUrl
-            ?: streamOption?.videoStream?.url
-            ?: hlsUrl
-            ?: streamData?.hlsUrl
-
-        if (rawUrl.isNullOrBlank()) {
-            _playerError.value = "No playable video source available"
-            player.playWhenReady = false
-            player.stop()
-            player.clearMediaItems()
-            return
-        }
-
-        val isEmbedWebUrl = streamOption?.format.equals("embed", true) ||
-                (rawUrl.contains("/embed/", ignoreCase = true) && !rawUrl.contains(".mp4") && !rawUrl.contains(".m3u8"))
-
-        if (isEmbedWebUrl) {
-            player.playWhenReady = false
-            player.stop()
-            player.clearMediaItems()
-            _playerError.value = null
-            return
-        }
-
-        val effectivePlayableUrl = rawUrl
-        val mediaKey = "${streamData?.videoId}_${effectivePlayableUrl}_${captionOption?.languageCode}"
-        if (mediaKey == currentLoadedMediaKey && player.playbackState != Player.STATE_IDLE && player.playbackState != Player.STATE_ENDED) {
-            player.playWhenReady = true
-            _isPlaying.value = true
-            return
-        }
-
-        val previousPos = _currentPositionMs.value.coerceAtLeast(try { playerCore?.player?.currentPosition ?: 0L } catch (_: Throwable) { 0L })
-        val isQualitySwitch = streamData?.videoId != null && streamData.videoId == previousVideoId && previousPos > 0L
-
-        val effectiveResumePos = resumeController.resolveEffectiveResumePosition(
-            context = appContext,
-            videoId = streamData?.videoId,
-            initialPos = initialPos,
-            isQualitySwitch = isQualitySwitch,
-            previousPos = previousPos
-        )
-
-        _firstFrameRendered.value = false
-        _areControlsVisible.value = false
-        autoHideControlsJob?.cancel()
-        com.example.ui.player.metrics.PlaybackMetricsTracker.resetSession()
-        com.example.ui.player.metrics.PlaybackMetricsTracker.startPreparation(rawUrl)
-        _currentPositionMs.value = effectiveResumePos
-        _durationMs.value = 0L
-        _bufferedPositionMs.value = 0L
-        _progressFraction.value = 0f
-        _bufferedFraction.value = 0f
-        _playerError.value = null
-        _subtitleMode.value = SubtitleMode.OFF
-        _currentActiveSubtitleText.value = ""
-        _currentActiveTranslatedText.value = ""
-        _bilibiliCues.value = emptyList()
-        _selectedSubtitleTrack.value = null
-        currentLoadedMediaKey = mediaKey
-        resumeController.setPendingResumePosition(effectiveResumePos.takeIf { it > 0L })
-
-        // Auto-enable captions only if user has NOT explicitly closed them
-        if (!userExplicitlyClosedSubtitles) {
-            val initialCaption = captionOption ?: streamData?.captionOptions?.firstOrNull {
-                it.languageCode.startsWith("en", ignoreCase = true) || it.languageName.contains("english", ignoreCase = true)
-            } ?: streamData?.captionOptions?.firstOrNull()
-
-            if (initialCaption != null) {
-                selectCaptionOption(appContext ?: context, initialCaption)
+        val token = ++playbackSessionToken
+        runOnMain {
+            if (token != playbackSessionToken) return@runOnMain
+            fallbackJob?.cancel()
+            fallbackJob = null
+            val player = getExoPlayer()
+            val previousVideoId = _activeStreamData.value?.videoId
+            if (previousVideoId != null && previousVideoId != streamData?.videoId) {
+                urlRetryCountMap.clear()
+                currentLoadedMediaKey = null
+                player.playWhenReady = false
+                player.pause()
+                player.stop()
+                player.clearMediaItems()
             }
-        }
+            _activeStreamData.value = if (streamData != null && streamOption != null && streamData.selectedStreamOption != streamOption) {
+                streamData.copy(selectedStreamOption = streamOption)
+            } else {
+                streamData
+            }
+            _bilibiliSubtitleTracks.value = streamData?.captionOptions ?: emptyList()
+            _selectedSubtitleTrack.value = captionOption
 
-        try {
-            player.clearMediaItems()
+            val rawUrl = streamOption?.videoUrl
+                ?: streamOption?.videoStream?.url
+                ?: hlsUrl
+                ?: streamData?.hlsUrl
 
-            val mediaSource = MediaSourceFactoryHelper.buildMediaSource(
-                context = appContext ?: context,
-                streamData = streamData,
-                streamOption = streamOption,
-                captionOption = captionOption,
-                hlsUrl = hlsUrl,
-                tag = streamData?.videoId
+            if (rawUrl.isNullOrBlank()) {
+                _playerError.value = "No playable video source available"
+                _isPlaying.value = false
+                _isBuffering.value = false
+                player.playWhenReady = false
+                player.pause()
+                player.stop()
+                player.clearMediaItems()
+                return@runOnMain
+            }
+
+            val isEmbedWebUrl = streamOption?.format.equals("embed", true) ||
+                    (rawUrl.contains("/embed/", ignoreCase = true) && !rawUrl.contains(".mp4") && !rawUrl.contains(".m3u8"))
+
+            if (isEmbedWebUrl) {
+                player.playWhenReady = false
+                player.pause()
+                player.stop()
+                player.clearMediaItems()
+                _playerError.value = null
+                return@runOnMain
+            }
+
+            val effectivePlayableUrl = rawUrl
+            val mediaKey = "${streamData?.videoId}_${effectivePlayableUrl}_${captionOption?.languageCode}"
+            if (mediaKey == currentLoadedMediaKey && player.playbackState != Player.STATE_IDLE && player.playbackState != Player.STATE_ENDED) {
+                player.playWhenReady = true
+                _isPlaying.value = true
+                return@runOnMain
+            }
+
+            val previousPos = _currentPositionMs.value.coerceAtLeast(try { playerCore?.player?.currentPosition ?: 0L } catch (_: Throwable) { 0L })
+            val isQualitySwitch = streamData?.videoId != null && streamData.videoId == previousVideoId && previousPos > 0L
+
+            val effectiveResumePos = resumeController.resolveEffectiveResumePosition(
+                context = appContext,
+                videoId = streamData?.videoId,
+                initialPos = initialPos,
+                isQualitySwitch = isQualitySwitch,
+                previousPos = previousPos
             )
 
-            if (mediaSource == null) {
-                _playerError.value = "Unable to parse valid video stream URL"
-                return
+            _firstFrameRendered.value = false
+            _areControlsVisible.value = false
+            autoHideControlsJob?.cancel()
+            com.example.ui.player.metrics.PlaybackMetricsTracker.resetSession()
+            com.example.ui.player.metrics.PlaybackMetricsTracker.startPreparation(rawUrl)
+            _currentPositionMs.value = effectiveResumePos
+            _durationMs.value = 0L
+            _bufferedPositionMs.value = 0L
+            _progressFraction.value = 0f
+            _bufferedFraction.value = 0f
+            _playerError.value = null
+            _subtitleMode.value = SubtitleMode.OFF
+            _currentActiveSubtitleText.value = ""
+            _currentActiveTranslatedText.value = ""
+            _bilibiliCues.value = emptyList()
+            _selectedSubtitleTrack.value = null
+            currentLoadedMediaKey = mediaKey
+            resumeController.setPendingResumePosition(effectiveResumePos.takeIf { it > 0L })
+
+            // Auto-enable captions only if user has NOT explicitly closed them
+            if (!userExplicitlyClosedSubtitles) {
+                val initialCaption = captionOption ?: streamData?.captionOptions?.firstOrNull {
+                    it.languageCode.startsWith("en", ignoreCase = true) || it.languageName.contains("english", ignoreCase = true)
+                } ?: streamData?.captionOptions?.firstOrNull()
+
+                if (initialCaption != null) {
+                    selectCaptionOption(appContext ?: context, initialCaption)
+                }
             }
 
-            if (streamData != null) {
-                queueManager.setInitialStream(
+            try {
+                player.playWhenReady = false
+                player.stop()
+                player.clearMediaItems()
+
+                val mediaSource = MediaSourceFactoryHelper.buildMediaSource(
+                    context = appContext ?: context,
                     streamData = streamData,
                     streamOption = streamOption,
                     captionOption = captionOption,
-                    initialMediaSource = mediaSource
-                )
-            } else {
-                player.setMediaSource(mediaSource)
-            }
-
-            if (effectiveResumePos > 0L) {
-                player.seekTo(effectiveResumePos)
-            }
-
-            com.example.ui.player.metrics.PlaybackMetricsTracker.startPreparation(effectivePlayableUrl)
-
-            PlaybackPipelineTracker.logPrepare(
-                urlSnippet = effectivePlayableUrl.take(60),
-                headersCount = streamOption?.headers?.size ?: 0
-            )
-
-            if (streamData?.providerId == "bilibili" || effectivePlayableUrl.contains("bilibili") || effectivePlayableUrl.contains("bilivideo")) {
-                val host = runCatching { android.net.Uri.parse(effectivePlayableUrl).host }.getOrNull() ?: "unknown"
-                val protocol = runCatching { android.net.Uri.parse(effectivePlayableUrl).scheme }.getOrNull() ?: "unknown"
-                Log.i("BilibiliDiagnostics", "Bilibili Stream Prepare: format=${streamOption?.format}, quality=${streamOption?.qualityLabel}, isMuxed=${streamOption?.isMuxed}, protocol=$protocol, host=$host, vUrl=${effectivePlayableUrl.take(120)}")
-            }
-
-            player.prepare()
-            player.playWhenReady = true
-            _isPlaying.value = true
-            playerCore?.setPlaybackSpeed(_playbackSpeed.value)
-
-            if (streamData != null) {
-                com.example.smartskip.SmartSkipPlayerEngine.onVideoChanged(
-                    context = appContext,
-                    videoId = streamData.videoId,
-                    durationMs = _durationMs.value,
-                    title = streamData.title,
-                    channelName = streamData.channelName,
-                    providerId = streamData.providerId
+                    hlsUrl = hlsUrl,
+                    tag = streamData?.videoId
                 )
 
-                SubtitleManager.resolveSubtitlesForPlayback(
-                    context = appContext,
-                    streamData = streamData,
-                    onUsableSubtitleFound = null,
-                    onFallbackToWhisper = null
-                )
-
-                scope.launch(Dispatchers.IO) {
-                    try {
-                        val videoRepo = VideoCacheRepository(appContext)
-                        videoRepo.cacheVideoMetadata(
-                            videoId = streamData.videoId,
-                            title = streamData.title,
-                            channelName = streamData.channelName,
-                            thumbnailUrl = "https://i.ytimg.com/vi/${streamData.videoId}/hqdefault.jpg",
-                            description = streamData.description,
-                            duration = "",
-                            providerId = streamData.providerId
-                        )
-                        if (effectivePlayableUrl.isNotBlank()) {
-                            videoRepo.cachePreloadedStream(
-                                videoId = streamData.videoId,
-                                streamUrl = effectivePlayableUrl,
-                                hlsUrl = hlsUrl ?: streamData.hlsUrl,
-                                qualityLabel = streamOption?.qualityLabel ?: "Auto"
-                            )
-                        }
-                    } catch (_: Throwable) {}
+                if (mediaSource == null) {
+                    _playerError.value = "Unable to parse valid video stream URL"
+                    _isPlaying.value = false
+                    _isBuffering.value = false
+                    return@runOnMain
                 }
+
+                if (streamData != null) {
+                    queueManager.setInitialStream(
+                        streamData = streamData,
+                        streamOption = streamOption,
+                        captionOption = captionOption,
+                        initialMediaSource = mediaSource
+                    )
+                } else {
+                    player.setMediaSource(mediaSource)
+                }
+
+                if (effectiveResumePos > 0L) {
+                    player.seekTo(effectiveResumePos)
+                }
+
+                com.example.ui.player.metrics.PlaybackMetricsTracker.startPreparation(effectivePlayableUrl)
+
+                PlaybackPipelineTracker.logPrepare(
+                    urlSnippet = effectivePlayableUrl.take(60),
+                    headersCount = streamOption?.headers?.size ?: 0
+                )
+
+                if (streamData?.providerId == "bilibili" || effectivePlayableUrl.contains("bilibili") || effectivePlayableUrl.contains("bilivideo")) {
+                    val host = runCatching { android.net.Uri.parse(effectivePlayableUrl).host }.getOrNull() ?: "unknown"
+                    val protocol = runCatching { android.net.Uri.parse(effectivePlayableUrl).scheme }.getOrNull() ?: "unknown"
+                    Log.i("BilibiliDiagnostics", "Bilibili Stream Prepare: format=${streamOption?.format}, quality=${streamOption?.qualityLabel}, isMuxed=${streamOption?.isMuxed}, protocol=$protocol, host=$host, vUrl=${effectivePlayableUrl.take(120)}")
+                }
+
+                player.prepare()
+                player.playWhenReady = true
+                _isPlaying.value = true
+                playerCore?.setPlaybackSpeed(_playbackSpeed.value)
+
+                if (streamData != null) {
+                    com.example.smartskip.SmartSkipPlayerEngine.onVideoChanged(
+                        context = appContext,
+                        videoId = streamData.videoId,
+                        durationMs = _durationMs.value,
+                        title = streamData.title,
+                        channelName = streamData.channelName,
+                        providerId = streamData.providerId
+                    )
+
+                    SubtitleManager.resolveSubtitlesForPlayback(
+                        context = appContext,
+                        streamData = streamData,
+                        onUsableSubtitleFound = null,
+                        onFallbackToWhisper = null
+                    )
+
+                    scope.launch(Dispatchers.IO) {
+                        try {
+                            val videoRepo = VideoCacheRepository(appContext)
+                            videoRepo.cacheVideoMetadata(
+                                videoId = streamData.videoId,
+                                title = streamData.title,
+                                channelName = streamData.channelName,
+                                thumbnailUrl = "https://i.ytimg.com/vi/${streamData.videoId}/hqdefault.jpg",
+                                description = streamData.description,
+                                duration = "",
+                                providerId = streamData.providerId
+                            )
+                            if (effectivePlayableUrl.isNotBlank()) {
+                                videoRepo.cachePreloadedStream(
+                                    videoId = streamData.videoId,
+                                    streamUrl = effectivePlayableUrl,
+                                    hlsUrl = hlsUrl ?: streamData.hlsUrl,
+                                    qualityLabel = streamOption?.qualityLabel ?: "Auto"
+                                )
+                            }
+                        } catch (_: Throwable) {}
+                    }
+                }
+            } catch (e: Throwable) {
+                _playerError.value = e.localizedMessage ?: "Playback initialization failed"
+                _isPlaying.value = false
+                _isBuffering.value = false
             }
-        } catch (e: Throwable) {
-            _playerError.value = e.localizedMessage ?: "Playback initialization failed"
         }
     }
 
     fun togglePlayPause() {
-        val exo = playerCore?.player ?: return
-        if (exo.isPlaying) {
-            exo.pause()
-            _isPlaying.value = false
-        } else if (exo.mediaItemCount > 0) {
-            exo.play()
-            _isPlaying.value = true
+        runOnMain {
+            val exo = playerCore?.player ?: return@runOnMain
+            if (exo.isPlaying) {
+                exo.pause()
+                _isPlaying.value = false
+            } else if (exo.mediaItemCount > 0) {
+                exo.play()
+                _isPlaying.value = true
+            }
         }
     }
 
@@ -900,6 +931,7 @@ class PlaybackSession(private val appContext: Context) {
     fun isStreamFailed(url: String?): Boolean = recoveryManager.isStreamFailed(url)
 
     fun stopAndClear() {
+        playbackSessionToken++
         autoHideControlsJob?.cancel()
         fallbackJob?.cancel()
         fallbackJob = null
@@ -925,7 +957,10 @@ class PlaybackSession(private val appContext: Context) {
     }
 
     fun releasePlayer() {
+        playbackSessionToken++
         autoHideControlsJob?.cancel()
+        fallbackJob?.cancel()
+        fallbackJob = null
         urlRetryCountMap.clear()
         currentLoadedMediaKey = null
         _activeStreamData.value = null

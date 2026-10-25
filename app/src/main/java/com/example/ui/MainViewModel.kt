@@ -26,6 +26,7 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.supervisorScope
@@ -3531,6 +3532,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun setActiveProvider(providerId: String) {
         feedLoadingJob?.cancel()
         feedLoadingJob = null
+        // Stop any background/previous source video if user switches source tabs on the home screen
+        if (_currentScreen.value != AppScreen.PLAYER) {
+            activePlaybackJob?.cancel()
+            activePlaybackJob = null
+            selectStreamJob?.cancel()
+            selectStreamJob = null
+            com.example.ui.player.GlobalPlayerManager.stopAndClear()
+            _activeVideoId.value = null
+            _activeVideoItem.value = null
+            _extractionResult.value = null
+            _isPlaying.value = false
+        }
         _isLoadingTrending.value = true
         _isFeedRefreshing.value = false
         _searchResults.value = emptyList()
@@ -4906,6 +4919,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             com.example.util.HomeFeedCacheManager.clearCache(getApplication())
             com.example.util.ExploreMediaHelper.clearCache()
         } else {
+            if (_trendingVideos.value.isEmpty() && _activeProviderId.value == "all" && !_adultContentEnabled.value) {
+                val cached = com.example.util.HomeFeedCacheManager.loadCachedFeed(getApplication())
+                    .ifEmpty { com.example.util.HomeFeedCache.loadFeed(getApplication()) }
+                if (cached.isNotEmpty()) {
+                    _trendingVideos.value = cached
+                    _isLoadingTrending.value = false
+                }
+            }
             val hasCachedItems = _trendingVideos.value.isNotEmpty()
             if (!hasCachedItems) {
                 _isLoadingTrending.value = true
@@ -5022,20 +5043,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
 
-                // Progressive updater that merges new batches smoothly and updates UI without jitter
+                // Progressive updater that merges new batches smoothly and updates UI immediately
                 fun updateFeedProgressively(newItems: List<VideoItem>) {
                     if (newItems.isEmpty()) return
                     synchronized(collectedFeed) {
                         collectedFeed.addAll(newItems)
                     }
                     val now = System.currentTimeMillis()
-                    if (_trendingVideos.value.isEmpty() || now - lastUiUpdateTime > 400L) {
+                    if (_trendingVideos.value.isEmpty() || now - lastUiUpdateTime > 120L) {
                         pendingBatchJob?.cancel()
                         commitFeedUpdate()
                     } else {
                         if (pendingBatchJob == null || pendingBatchJob?.isCompleted == true) {
                             pendingBatchJob = launch(Dispatchers.IO) {
-                                kotlinx.coroutines.delay(220L)
+                                kotlinx.coroutines.delay(80L)
                                 commitFeedUpdate()
                             }
                         }
@@ -5045,7 +5066,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 // Helper to safely execute a provider task with isolation, health checks, and fast timeout
                 suspend fun fetchSafely(providerId: String, timeoutMs: Long = 3500L, block: suspend () -> List<VideoItem>): List<VideoItem> {
                     val start = System.currentTimeMillis()
-                    val effectiveTimeout = if (providerId in listOf("thisvid", "stripchat")) 12000L else timeoutMs
+                    val effectiveTimeout = if (providerId in listOf("thisvid", "stripchat")) 10000L else timeoutMs
                     return try {
                         globalLimiter.withPermit {
                             val items = kotlinx.coroutines.withTimeoutOrNull(effectiveTimeout) { block() } ?: emptyList()
@@ -5066,7 +5087,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
                 // === PRIORITY 1: FAST PRIMARY ESSENTIAL PROVIDERS ===
                 supervisorScope {
-                    // 0. Selected Vega Provider (Instant dispatch when a specific Vega source tab is selected)
+                    // 0. Selected Vega Provider (Instant dispatch when a specific Vega source tab is selected, with automatic catalog fallback if scraper is dead)
                     if (!adultEnabled && activeProv.startsWith("vega_")) {
                         val raw = activeProv.removePrefix("vega_")
                         val installedVega = vegaRepository.getInstalledProviders()
@@ -5078,7 +5099,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             )
                         val currentVegaServer = vegaRepository.getServerUrl()
                         launch(Dispatchers.IO) {
-                            val vResults = fetchSafely("vega_${targetVegaProv.id}", 18000L) {
+                            val vResults = fetchSafely("vega_${targetVegaProv.id}", 9000L) {
                                 val list = com.example.vega.VegaProviderClient.getHomeContent(targetVegaProv.id, currentVegaServer)
                                 list.map { vItem ->
                                     val isTv = vItem.title.contains("season", ignoreCase = true) || vItem.title.contains("series", ignoreCase = true) || vItem.title.contains("s0", ignoreCase = true)
@@ -5097,6 +5118,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             }
                             if (vResults.isNotEmpty()) {
                                 updateFeedProgressively(vResults)
+                            } else {
+                                // Dead/offline Vega scraper fallback: populate with TMDB cinema catalog tagged for this Vega tab so it never hangs on an empty loading screen
+                                val fallbackCatalog = fetchSafely("tmdb_fallback_${targetVegaProv.id}", 6000L) {
+                                    com.example.extractor.TMDBEmbedProvider.getHome(targetPage, provLimit, context = getApplication()).map {
+                                        it.copy(
+                                            id = "vega_${targetVegaProv.id}::${it.title}",
+                                            providerId = "vega_${targetVegaProv.id}"
+                                        )
+                                    }
+                                }
+                                if (fallbackCatalog.isNotEmpty()) {
+                                    updateFeedProgressively(fallbackCatalog)
+                                }
                             }
                         }
                     }
@@ -5140,7 +5174,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     // 4. Bilibili (Mainstream only)
                     if (!adultEnabled && (activeProv == "all" || activeProv == "bilibili") && enabledSet.contains("bilibili")) {
                         launch(Dispatchers.IO) {
-                            val biliItems = fetchSafely("bilibili", if (activeProv == "bilibili") 12000L else 4000L) {
+                            val biliItems = fetchSafely("bilibili", if (activeProv == "bilibili") 10000L else 4000L) {
                                 com.example.extractor.BilibiliProvider.getHomeVideos(targetPage, provLimit)
                             }
                             if (biliItems.isNotEmpty()) {
@@ -5161,11 +5195,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
 
-                    // 5b. OlaMovies (Mainstream Movies & TV Series via Worker)
+                    // 5b. OlaMovies (Mainstream Movies & TV Series via Worker - fixed page/limit parameter order)
                     if (!adultEnabled && (activeProv == "all" || activeProv == "olamovies") && enabledSet.contains("olamovies")) {
                         launch(Dispatchers.IO) {
-                            val olaItems = fetchSafely("olamovies", if (activeProv == "olamovies") 12000L else 6500L) {
-                                com.example.extractor.OlaMoviesProvider.getHome(provLimit, targetPage, getApplication())
+                            val olaItems = fetchSafely("olamovies", if (activeProv == "olamovies") 10000L else 6000L) {
+                                com.example.extractor.OlaMoviesProvider.getHome(page = targetPage, limit = provLimit, context = getApplication())
                             }
                             if (olaItems.isNotEmpty()) {
                                 updateFeedProgressively(olaItems)
@@ -6077,97 +6111,127 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     val link = if (parts.size == 2) parts[1] else cleanIdOrUrl
 
-                    val resolution = kotlinx.coroutines.withTimeoutOrNull(25000L) {
-                        com.example.vega.VegaProviderClient.resolveFullVegaPlayback(rawProv, link)
+                    val movieOrSeriesTitle = initialVideoItem.title.ifBlank {
+                        parts.getOrNull(1)?.substringAfterLast("/")?.replace("-", " ")?.replace("/", "") ?: ""
                     }
+                    val cleanSearchTitle = com.example.util.StreamCategorizer.extractCleanSearchTitle(movieOrSeriesTitle)
+                    val isTv = cleanIdOrUrl.contains("tv", ignoreCase = true) ||
+                            cleanIdOrUrl.contains("series", ignoreCase = true) ||
+                            movieOrSeriesTitle.contains("season", ignoreCase = true) ||
+                            movieOrSeriesTitle.contains("s0", ignoreCase = true)
+                    val mediaType = if (isTv) "tv" else "movie"
 
-                    if (resolution != null && resolution.success && resolution.streams.isNotEmpty()) {
-                        val options = resolution.streams.map { st ->
-                            val label = if (st.server.isNotBlank() && st.server != "Direct") {
-                                "${st.quality} • ${st.server}"
-                            } else {
-                                st.quality
+                    // Race the selected Vega provider against fast TMDB/VidSrc/Nuvio fallback streams so dead Vega sources auto-skip without hanging
+                    coroutineScope {
+                        val vegaDeferred = async {
+                            withTimeoutOrNull(11000L) {
+                                com.example.vega.VegaProviderClient.resolveFullVegaPlayback(rawProv, link)
                             }
-                            PlayableStreamOption(
-                                qualityLabel = label,
-                                format = st.format.lowercase(),
-                                isMuxed = true,
-                                videoUrl = st.url,
-                                audioUrl = null,
-                                providerType = com.example.model.ProviderType.VEGA,
-                                headers = st.headers
-                            )
                         }
-
-                        val resolvedMeta = resolution.meta
-                        val updatedTitle = resolvedMeta?.title?.ifBlank { null } ?: initialVideoItem.title
-                        val updatedDescription = resolvedMeta?.synopsis ?: initialVideoItem.description
-                        val isTv = cleanIdOrUrl.contains("tv") || cleanIdOrUrl.contains("series")
-                        val studio = com.example.util.StudioDetector.detectStudio(updatedTitle, isTv)
-                        val studioLogo = com.example.util.ChannelLogoHelper.getBrandInfo(studio, null, updatedTitle).logoUrls.firstOrNull()
-
-                        val streamData = StreamData(
-                            videoId = cleanIdOrUrl,
-                            title = updatedTitle,
-                            channelName = studio,
-                            channelAvatarUrl = studioLogo,
-                            description = updatedDescription,
-                            availableStreamOptions = options,
-                            selectedStreamOption = options.first(),
-                            providerId = targetProviderId ?: "vega_$rawProv",
-                            providerType = com.example.model.ProviderType.VEGA,
-                            headers = options.firstOrNull()?.headers ?: emptyMap()
-                        )
-                        YouTubeExtractorHelper.ExtractionResult.Success(streamData)
-                    } else {
-                        val movieOrSeriesTitle = initialVideoItem.title.ifBlank {
-                            parts.getOrNull(1)?.substringAfterLast("/")?.replace("-", " ")?.replace("/", "") ?: ""
-                        }
-                        val cleanSearchTitle = com.example.util.StreamCategorizer.extractCleanSearchTitle(movieOrSeriesTitle)
-                        val isTv = cleanIdOrUrl.contains("tv", ignoreCase = true) ||
-                                cleanIdOrUrl.contains("series", ignoreCase = true) ||
-                                movieOrSeriesTitle.contains("season", ignoreCase = true) ||
-                                movieOrSeriesTitle.contains("s0", ignoreCase = true)
-                        val mediaType = if (isTv) "tv" else "movie"
-
-                        val directOptions = mutableListOf<PlayableStreamOption>()
-                        try {
-                            val resolvedTmdbId = com.example.util.TMDBHelper.resolveTmdbAndImdb(cleanSearchTitle.ifBlank { movieOrSeriesTitle }, mediaType).first
-                                ?: Regex("""\b(\d{3,8})\b""").find(cleanIdOrUrl)?.value
-                                ?: ""
-                            val tmdbReq = com.example.extractor.tmdbembed.TMDBMediaRequest(
-                                tmdbId = resolvedTmdbId,
-                                mediaType = mediaType,
-                                title = cleanSearchTitle.ifBlank { movieOrSeriesTitle }
-                            )
-                            val cinemaStreams = com.example.extractor.tmdbembed.TMDBEmbedExtractorEngine.resolveStreamOptions(getApplication(), tmdbReq)
-                            cinemaStreams.forEach { opt ->
-                                directOptions.add(
-                                    opt.copy(
-                                        qualityLabel = "[Butterfly Server] ${opt.qualityLabel}",
-                                        sourceName = "Butterfly Server"
+                        val fallbackDeferred = async {
+                            val directOptions = java.util.Collections.synchronizedList(mutableListOf<PlayableStreamOption>())
+                            try {
+                                val resolvedTmdbId = com.example.util.TMDBHelper.resolveTmdbAndImdb(cleanSearchTitle.ifBlank { movieOrSeriesTitle }, mediaType).first
+                                    ?: Regex("""\b(\d{3,8})\b""").find(cleanIdOrUrl)?.value
+                                    ?: ""
+                                if (resolvedTmdbId.isNotBlank()) {
+                                    val tmdbReq = com.example.extractor.tmdbembed.TMDBMediaRequest(
+                                        tmdbId = resolvedTmdbId,
+                                        mediaType = mediaType,
+                                        title = cleanSearchTitle.ifBlank { movieOrSeriesTitle }
                                     )
+                                    coroutineScope {
+                                        launch {
+                                            try {
+                                                val cinemaStreams = withTimeoutOrNull(8500L) {
+                                                    com.example.extractor.tmdbembed.TMDBEmbedExtractorEngine.resolveStreamOptions(getApplication(), tmdbReq)
+                                                }.orEmpty()
+                                                cinemaStreams.forEach { opt ->
+                                                    directOptions.add(
+                                                        opt.copy(
+                                                            qualityLabel = "[Butterfly Server] ${opt.qualityLabel}",
+                                                            sourceName = "Butterfly Server"
+                                                        )
+                                                    )
+                                                }
+                                            } catch (_: Exception) {}
+                                        }
+                                        launch {
+                                            try {
+                                                val wasmStreams = withTimeoutOrNull(8000L) {
+                                                    com.example.extractor.vidsrc.VidSrcStreamExtractor.resolveViaWasmDecryption(
+                                                        context = getApplication(),
+                                                        tmdbId = resolvedTmdbId,
+                                                        isTv = isTv,
+                                                        season = 1,
+                                                        episode = 1,
+                                                        title = cleanSearchTitle.ifBlank { movieOrSeriesTitle },
+                                                        providerName = "Butterfly Server"
+                                                    )
+                                                }.orEmpty()
+                                                directOptions.addAll(wasmStreams)
+                                            } catch (_: Exception) {}
+                                        }
+                                        if (nuvioRepository.isMasterEnabled.value) {
+                                            launch {
+                                                try {
+                                                    val nuvioStreams = withTimeoutOrNull(9000L) {
+                                                        com.example.extractor.nuvio.NuvioProviderEngine.resolveNuvioStreams(getApplication(), tmdbReq)
+                                                    }.orEmpty()
+                                                    directOptions.addAll(nuvioStreams)
+                                                } catch (_: Exception) {}
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                Log.w("MainViewModel", "Butterfly Server cinema fallback note: ${e.message}")
+                            }
+                            directOptions.toList()
+                        }
+
+                        val resolution = vegaDeferred.await()
+                        val fallbackOptions = fallbackDeferred.await()
+
+                        val vegaOptions = if (resolution != null && resolution.success && resolution.streams.isNotEmpty()) {
+                            resolution.streams.map { st ->
+                                val label = if (st.server.isNotBlank() && st.server != "Direct") {
+                                    "${st.quality} • ${st.server}"
+                                } else {
+                                    st.quality
+                                }
+                                PlayableStreamOption(
+                                    qualityLabel = label,
+                                    format = st.format.lowercase(),
+                                    isMuxed = true,
+                                    videoUrl = st.url,
+                                    audioUrl = null,
+                                    providerType = com.example.model.ProviderType.VEGA,
+                                    headers = st.headers,
+                                    sourceName = st.server.ifBlank { rawProv }
                                 )
                             }
-                            if (nuvioRepository.isMasterEnabled.value) {
-                                val nuvioStreams = com.example.extractor.nuvio.NuvioProviderEngine.resolveNuvioStreams(getApplication(), tmdbReq)
-                                directOptions.addAll(nuvioStreams)
-                            }
-                        } catch (e: Exception) {
-                            Log.w("MainViewModel", "Butterfly Server cinema fallback note: ${e.message}")
-                        }
+                        } else emptyList()
 
-                        if (directOptions.isNotEmpty()) {
+                        val combinedOptions = (vegaOptions + fallbackOptions).distinctBy { it.videoUrl }
+                        if (combinedOptions.isNotEmpty()) {
+                            val resolvedMeta = resolution?.meta
+                            val updatedTitle = resolvedMeta?.title?.ifBlank { null } ?: initialVideoItem.title.ifBlank { movieOrSeriesTitle }
+                            val updatedDescription = resolvedMeta?.synopsis ?: initialVideoItem.description
+                            val studio = com.example.util.StudioDetector.detectStudio(updatedTitle, isTv)
+                            val studioLogo = com.example.util.ChannelLogoHelper.getBrandInfo(studio, null, updatedTitle).logoUrls.firstOrNull()
+                            val primaryOpt = combinedOptions.first()
                             val streamData = StreamData(
                                 videoId = cleanIdOrUrl,
-                                title = initialVideoItem.title.ifBlank { movieOrSeriesTitle },
-                                channelName = "Butterfly MediaServer",
-                                channelAvatarUrl = initialVideoItem.uploaderAvatarUrl,
-                                description = "Direct Cloud Media Stream • Full HD",
-                                availableStreamOptions = directOptions,
-                                selectedStreamOption = directOptions.first(),
+                                title = updatedTitle,
+                                channelName = studio.ifBlank { "Butterfly MediaServer" },
+                                channelAvatarUrl = studioLogo ?: initialVideoItem.uploaderAvatarUrl,
+                                description = updatedDescription?.ifBlank { null } ?: "Direct Cloud Media Stream • Full HD",
+                                availableStreamOptions = combinedOptions,
+                                selectedStreamOption = primaryOpt,
                                 providerId = targetProviderId ?: "vega_$rawProv",
-                                providerType = com.example.model.ProviderType.DIRECT
+                                providerType = primaryOpt.providerType,
+                                headers = primaryOpt.headers
                             )
                             YouTubeExtractorHelper.ExtractionResult.Success(streamData)
                         } else {
@@ -6185,21 +6249,111 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                 } else {
-                    kotlinx.coroutines.withTimeoutOrNull(20000L) {
+                    val primaryResult = kotlinx.coroutines.withTimeoutOrNull(18000L) {
                         YouTubeExtractorHelper.resolveStream(cleanIdOrUrl, getApplication(), targetProviderId)
                     } ?: YouTubeExtractorHelper.ExtractionResult.Error(
                         ExtractorErrorDetails(
                             errorType = ExtractorErrorType.NETWORK_ERROR,
-                            message = "Stream extraction timed out. Please check your network connection or try again.",
+                            message = "Stream extraction timed out. Trying backup sources...",
                             rawExceptionName = "TimeoutException",
-                            fullStackTrace = "resolveStream exceeded 20s timeout",
+                            fullStackTrace = "resolveStream exceeded 18s timeout",
                             urlOrId = cleanIdOrUrl
                         )
                     )
+
+                    // Auto-skip dead movie/series sources (Nuvio, VidSrc, Decryptor, TMDB, OlaMovies) by cascading to working cinema mirrors
+                    val isCinemaProvider = targetProviderId == "olamovies" ||
+                            targetProviderId?.startsWith("nuvio") == true ||
+                            targetProviderId?.startsWith("vidsrc") == true ||
+                            targetProviderId?.startsWith("decryptor") == true ||
+                            targetProviderId?.startsWith("tmdb") == true ||
+                            cleanIdOrUrl.startsWith("olamovies") ||
+                            cleanIdOrUrl.startsWith("nuvio") ||
+                            cleanIdOrUrl.startsWith("vidsrc") ||
+                            cleanIdOrUrl.startsWith("decryptor") ||
+                            cleanIdOrUrl.startsWith("tmdb")
+
+                    if (primaryResult is YouTubeExtractorHelper.ExtractionResult.Error && isCinemaProvider) {
+                        val fallbackTitle = com.example.util.StreamCategorizer.extractCleanSearchTitle(initialVideoItem.title)
+                        val isTv = cleanIdOrUrl.contains("tv", true) || cleanIdOrUrl.contains("series", true) || initialVideoItem.title.contains("season", true)
+                        val mediaType = if (isTv) "tv" else "movie"
+                        val rescueOptions = mutableListOf<PlayableStreamOption>()
+                        try {
+                            val tmdbId = Regex("""\b(\d{3,8})\b""").find(cleanIdOrUrl)?.value
+                                ?: com.example.util.TMDBHelper.resolveTmdbAndImdb(fallbackTitle.ifBlank { initialVideoItem.title }, mediaType).first
+                                ?: ""
+                            if (tmdbId.isNotBlank()) {
+                                val tmdbReq = com.example.extractor.tmdbembed.TMDBMediaRequest(
+                                    tmdbId = tmdbId,
+                                    mediaType = mediaType,
+                                    title = fallbackTitle.ifBlank { initialVideoItem.title }
+                                )
+                                coroutineScope {
+                                    val tmdbDef = async {
+                                        withTimeoutOrNull(8500L) {
+                                            com.example.extractor.tmdbembed.TMDBEmbedExtractorEngine.resolveStreamOptions(getApplication(), tmdbReq)
+                                        }.orEmpty()
+                                    }
+                                    val wasmDef = async {
+                                        withTimeoutOrNull(8000L) {
+                                            com.example.extractor.vidsrc.VidSrcStreamExtractor.resolveViaWasmDecryption(
+                                                context = getApplication(),
+                                                tmdbId = tmdbId,
+                                                isTv = isTv,
+                                                season = 1,
+                                                episode = 1,
+                                                title = fallbackTitle.ifBlank { initialVideoItem.title },
+                                                providerName = targetProviderId ?: "Auto-Fallback"
+                                            )
+                                        }.orEmpty()
+                                    }
+                                    val nuvioDef = async {
+                                        withTimeoutOrNull(8500L) {
+                                            com.example.extractor.nuvio.NuvioProviderEngine.resolveNuvioStreams(getApplication(), tmdbReq)
+                                        }.orEmpty()
+                                    }
+                                    rescueOptions.addAll(tmdbDef.await())
+                                    rescueOptions.addAll(wasmDef.await())
+                                    rescueOptions.addAll(nuvioDef.await())
+                                }
+                            }
+                        } catch (_: Exception) {}
+
+                        if (rescueOptions.isNotEmpty()) {
+                            val deduped = rescueOptions.distinctBy { it.videoUrl }
+                            val firstOpt = deduped.first()
+                            YouTubeExtractorHelper.ExtractionResult.Success(
+                                StreamData(
+                                    videoId = cleanIdOrUrl,
+                                    videoUrl = firstOpt.videoUrl ?: "",
+                                    title = initialVideoItem.title,
+                                    channelName = initialVideoItem.uploaderName.ifBlank { "Cinema Direct" },
+                                    channelAvatarUrl = initialVideoItem.uploaderAvatarUrl,
+                                    description = initialVideoItem.description,
+                                    availableStreamOptions = deduped,
+                                    selectedStreamOption = firstOpt,
+                                    hlsUrl = if (firstOpt.videoUrl?.contains(".m3u8", true) == true) firstOpt.videoUrl else null,
+                                    providerId = targetProviderId ?: "tmdb",
+                                    thumbnailUrl = initialVideoItem.thumbnailUrl,
+                                    providerType = firstOpt.providerType,
+                                    headers = firstOpt.headers
+                                )
+                            )
+                        } else {
+                            primaryResult
+                        }
+                    } else {
+                        primaryResult
+                    }
                 }
 
                 if (!isActive || _activeVideoId.value != cleanIdOrUrl) return@launch
                 _extractionResult.value = result
+                if (result is YouTubeExtractorHelper.ExtractionResult.Error) {
+                    withContext(Dispatchers.Main) {
+                        com.example.ui.player.GlobalPlayerManager.stopAndClear()
+                    }
+                }
                 if (result is YouTubeExtractorHelper.ExtractionResult.Success) {
                     val primary = result.streamData.selectedStreamOption
                         ?: result.streamData.availableStreamOptions.firstOrNull { it.isMuxed && !(it.videoUrl ?: it.audioUrl).isNullOrBlank() }
@@ -6442,11 +6596,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val targetVideoId = _activeVideoId.value
         val ext = _extractionResult.value
         if (ext is YouTubeExtractorHelper.ExtractionResult.Success) {
-            val isSamePlayingVideo = com.example.ui.player.GlobalPlayerManager.activeStreamData.value?.videoId == ext.streamData.videoId
+            val activePlayerVideoId = com.example.ui.player.GlobalPlayerManager.activeStreamData.value?.videoId
+            val isSamePlayingVideo = activePlayerVideoId != null && activePlayerVideoId == ext.streamData.videoId
             val currentPos = if (isSamePlayingVideo) {
                 com.example.ui.player.GlobalPlayerManager.currentPositionMs.value.coerceAtLeast(0L)
             } else {
                 0L
+            }
+            if (!isSamePlayingVideo && activePlayerVideoId != null) {
+                com.example.ui.player.GlobalPlayerManager.stopAndClear()
             }
             val updatedStreamData = ext.streamData.copy(selectedStreamOption = option)
             _extractionResult.value = YouTubeExtractorHelper.ExtractionResult.Success(updatedStreamData)
@@ -6461,6 +6619,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     url.contains("vidlink.", true)) && !url.contains(".m3u8", true) && !url.contains(".mp4", true)
 
             if (isEmbedUrl && url.startsWith("http")) {
+                com.example.ui.player.GlobalPlayerManager.pause()
                 selectStreamJob = viewModelScope.launch {
                     val sniffed = try {
                         com.example.extractor.vidsrc.VidSrcStreamExtractor.sniffEmbedUrl(getApplication(), url)
@@ -6497,6 +6656,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             // Handle OlaMovies on-demand quality/episode link resolution (Stage 2)
             if (url.startsWith("olamovies_resolve::")) {
+                com.example.ui.player.GlobalPlayerManager.pause()
                 selectStreamJob = viewModelScope.launch(Dispatchers.IO) {
                     try {
                         val parts = url.removePrefix("olamovies_resolve::").split("::", limit = 3)
@@ -6508,7 +6668,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                         val streamData = com.example.extractor.OlaMoviesProvider.getStreamData(url, getApplication())
                         val primary = streamData.selectedStreamOption
-                            ?: streamData.availableStreamOptions.firstOrNull()
+                            ?: streamData.availableStreamOptions.firstOrNull { it.videoUrl?.startsWith("olamovies_resolve::") == false }
                             ?: throw com.example.extractor.OlaMoviesProvider.OlaMoviesException("No playable stream returned for $label")
                         val isHls = primary.videoUrl?.contains(".m3u8", ignoreCase = true) == true
                         val playableOption = primary.copy(
@@ -6545,11 +6705,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     } catch (e: Exception) {
                         withContext(Dispatchers.Main) {
                             if (_activeVideoId.value == targetVideoId) {
-                                android.widget.Toast.makeText(
-                                    getApplication(),
-                                    "OlaMovies playback failed: ${e.message ?: "Unable to resolve stream"}",
-                                    android.widget.Toast.LENGTH_LONG
-                                ).show()
+                                tryNextFallbackStream()
                             }
                         }
                     }
@@ -6559,6 +6715,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             // Handle Vega stream resolution if url is encoded with vega_
             if (url.startsWith("vega_") || url.startsWith("vega://") || (!url.startsWith("http") && option.providerType == com.example.model.ProviderType.VEGA)) {
+                com.example.ui.player.GlobalPlayerManager.pause()
                 selectStreamJob = viewModelScope.launch(Dispatchers.IO) {
                     try {
                         val raw = url.removePrefix("vega://").removePrefix("vega_")
@@ -6574,7 +6731,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
 
                         val currentServer = vegaRepository.getServerUrl()
-                        val res = kotlinx.coroutines.withTimeoutOrNull(25000L) {
+                        val res = kotlinx.coroutines.withTimeoutOrNull(12000L) {
                             com.example.vega.VegaProviderClient.resolveFullVegaPlayback(provId, targetLink.ifBlank { postLink }, currentServer)
                         }
 
@@ -6605,7 +6762,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         } else {
                             withContext(Dispatchers.Main) {
                                 if (_activeVideoId.value == targetVideoId) {
-                                    android.widget.Toast.makeText(getApplication(), "Butterfly-MediaServer stream note: ${res?.errorMessage ?: "Direct stream link expired"}", android.widget.Toast.LENGTH_LONG).show()
+                                    tryNextFallbackStream()
                                 }
                             }
                         }
@@ -6614,7 +6771,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     } catch (e: Exception) {
                         withContext(Dispatchers.Main) {
                             if (_activeVideoId.value == targetVideoId) {
-                                android.widget.Toast.makeText(getApplication(), "Could not play stream: ${e.message}", android.widget.Toast.LENGTH_LONG).show()
+                                tryNextFallbackStream()
                             }
                         }
                     }

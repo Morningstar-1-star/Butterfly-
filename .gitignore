@@ -16,3 +16,11 @@
 local.properties
 .env
 debug.keystore
+/release-apk
+/public/assets/aistudio
+/tmp
+/.build-outputs
+app/build
+*.apk
+*.aab
+

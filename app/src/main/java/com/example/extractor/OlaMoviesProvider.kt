@@ -17,6 +17,10 @@ import com.example.model.StreamData
 import com.example.model.VideoItem
 import com.example.util.AppConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -784,7 +788,7 @@ object OlaMoviesProvider {
         context: Context,
         targetUrl: String,
         referer: String
-    ): Pair<String, String> = withTimeoutOrNull(14_000L) {
+    ): Pair<String, String> = withTimeoutOrNull(6_000L) {
         withContext(Dispatchers.Main) {
             suspendCancellableCoroutine { cont ->
                 var completed = false
@@ -846,7 +850,7 @@ object OlaMoviesProvider {
                             } catch (_: Exception) {
                                 finish(currentUrl, "")
                             }
-                        }, 1800L)
+                        }, 1100L)
                     }
                 }
 
@@ -871,7 +875,7 @@ object OlaMoviesProvider {
                         }
                     }
                 }
-                handler.postDelayed(timeoutRunnable, 12_500L)
+                handler.postDelayed(timeoutRunnable, 5_000L)
 
                 cont.invokeOnCancellation {
                     handler.removeCallbacksAndMessages(null)
@@ -1412,107 +1416,156 @@ object OlaMoviesProvider {
             val parentPath = parts.getOrNull(2).orEmpty()
             val parentMeta = if (parentPath.isNotBlank()) metaCache[parentPath] else null
 
-            var resolvedStreams = try {
-                resolveStreamForLink(shortenerUrl, context)
-            } catch (e: Exception) {
-                Log.w(TAG, "resolveStreamForLink failed for $shortenerUrl: ${e.message}")
-                emptyList()
-            }
+            val cleanTitle = (parentMeta?.title ?: qualityLabel)
+                .replace(Regex("""\s*\(\d{4}\).*"""), "")
+                .replace(Regex("""\s*Download.*$""", RegexOption.IGNORE_CASE), "")
+                .trim()
+            val isSeries = parentMeta?.isSeries ?: (qualityLabel.contains("episode", true) || qualityLabel.contains("ep", true))
+            val epNum = Regex("""(?i)\b(?:ep|episode)\s*(\d+)\b""").find(qualityLabel)?.groupValues?.get(1)?.toIntOrNull()
+                ?: Regex("""(?i)s\d+e(\d+)""").find(qualityLabel)?.groupValues?.get(1)?.toIntOrNull()
+                ?: 1
+            val seasonNum = Regex("""(?i)\b(?:s|season)\s*(\d+)\b""").find(qualityLabel)?.groupValues?.get(1)?.toIntOrNull()
+                ?: Regex("""(?i)s(\d+)e\d+""").find(qualityLabel)?.groupValues?.get(1)?.toIntOrNull()
+                ?: 1
 
-            val options = mutableListOf<PlayableStreamOption>()
-            for (s in resolvedStreams) {
-                val isHls = s.link.contains(".m3u8", ignoreCase = true)
-                options.add(
-                    PlayableStreamOption(
-                        qualityLabel = "$qualityLabel • ${s.server}",
-                        format = if (isHls) "hls" else s.type.ifBlank { "mkv" },
-                        isMuxed = true,
-                        videoUrl = s.link,
-                        audioUrl = null,
-                        providerType = ProviderType.DIRECT,
-                        headers = s.headers,
-                        sourceName = "OlaMovies (${s.server})"
-                    )
-                )
-            }
-
-            // Fallback to high-speed direct cinema stream if hoster shortener failed
-            if (options.isEmpty()) {
-                val cleanTitle = (parentMeta?.title ?: qualityLabel)
-                    .replace(Regex("""\s*\(\d{4}\).*"""), "")
-                    .replace(Regex("""\s*Download.*$""", RegexOption.IGNORE_CASE), "")
-                    .trim()
-                val isSeries = parentMeta?.isSeries ?: (qualityLabel.contains("episode", true) || qualityLabel.contains("ep", true))
-                val epNum = Regex("""(?i)\b(?:ep|episode)\s*(\d+)\b""").find(qualityLabel)?.groupValues?.get(1)?.toIntOrNull()
-                    ?: Regex("""(?i)s\d+e(\d+)""").find(qualityLabel)?.groupValues?.get(1)?.toIntOrNull()
-                    ?: 1
-                val seasonNum = Regex("""(?i)\b(?:s|season)\s*(\d+)\b""").find(qualityLabel)?.groupValues?.get(1)?.toIntOrNull()
-                    ?: Regex("""(?i)s(\d+)e\d+""").find(qualityLabel)?.groupValues?.get(1)?.toIntOrNull()
-                    ?: 1
-
-                try {
-                    var tmdbId = ""
-                    if (parentMeta?.imdbId?.isNotBlank() == true && parentMeta.imdbId.startsWith("tt")) {
-                        tmdbId = com.example.util.TMDBHelper.resolveTmdbAndImdb(parentMeta.imdbId, if (isSeries) "tv" else "movie").first ?: ""
+            val options = coroutineScope {
+                val shortenerDeferred = async {
+                    try {
+                        withTimeoutOrNull(7500L) {
+                            resolveStreamForLink(shortenerUrl, context)
+                        }.orEmpty()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "resolveStreamForLink failed for $shortenerUrl: ${e.message}")
+                        emptyList()
                     }
-                    if (tmdbId.isBlank() && cleanTitle.isNotBlank()) {
-                        tmdbId = com.example.util.TMDBHelper.resolveTmdbAndImdb(cleanTitle, if (isSeries) "tv" else "movie").first ?: ""
-                    }
-                    if (cleanTitle.isNotBlank()) {
-                        com.example.vega.VegaProviderClient.resolveUnified(
-                            title = cleanTitle,
-                            tmdbId = tmdbId,
-                            isTv = isSeries,
-                            season = seasonNum,
-                            episode = epNum
-                        ).forEach { st ->
-                            options.add(
-                                PlayableStreamOption(
-                                    qualityLabel = "$qualityLabel • ${st.quality.ifBlank { "HD" }} • ${st.server}",
-                                    format = st.format.lowercase(),
-                                    isMuxed = true,
-                                    videoUrl = st.url,
-                                    audioUrl = null,
-                                    providerType = ProviderType.DIRECT,
-                                    headers = st.headers,
-                                    sourceName = "OlaMovies (Server)",
-                                    releaseTitle = parentMeta?.title ?: cleanTitle
-                                )
-                            )
-                        }
-                    }
-                    if (options.isEmpty() && tmdbId.isNotBlank() && context != null) {
-                        val tmdbReq = com.example.extractor.tmdbembed.TMDBMediaRequest(
-                            tmdbId = tmdbId,
-                            mediaType = if (isSeries) "tv" else "movie",
-                            title = cleanTitle,
-                            season = seasonNum,
-                            episode = epNum
-                        )
-                        val cinemaStreams = com.example.extractor.tmdbembed.TMDBEmbedExtractorEngine.resolveStreamOptions(context, tmdbReq)
-                        cinemaStreams.forEach { st ->
-                            options.add(
-                                st.copy(
-                                    qualityLabel = "$qualityLabel • ${st.qualityLabel.substringBefore(" •")}",
-                                    sourceName = "OlaMovies Direct",
-                                    releaseTitle = parentMeta?.title ?: cleanTitle
-                                )
-                            )
-                        }
-                        val wasmStreams = com.example.extractor.vidsrc.VidSrcStreamExtractor.resolveViaWasmDecryption(
-                            context = context,
-                            tmdbId = tmdbId,
-                            isTv = isSeries,
-                            season = seasonNum,
-                            episode = epNum,
-                            title = cleanTitle,
-                            providerName = "OlaMovies"
-                        )
-                        options.addAll(wasmStreams)
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "On-demand cinema stream resolution note: ${e.message}")
                 }
+
+                val fastCinemaDeferred = async {
+                    val cinemaList = java.util.Collections.synchronizedList(mutableListOf<PlayableStreamOption>())
+                    try {
+                        var tmdbId = ""
+                        if (parentMeta?.imdbId?.isNotBlank() == true && parentMeta.imdbId.startsWith("tt")) {
+                            tmdbId = com.example.util.TMDBHelper.resolveTmdbAndImdb(parentMeta.imdbId, if (isSeries) "tv" else "movie").first ?: ""
+                        }
+                        if (tmdbId.isBlank() && cleanTitle.isNotBlank()) {
+                            tmdbId = com.example.util.TMDBHelper.resolveTmdbAndImdb(cleanTitle, if (isSeries) "tv" else "movie").first ?: ""
+                        }
+                        coroutineScope {
+                            val jobs = mutableListOf<Job>()
+                            if (tmdbId.isNotBlank() && context != null) {
+                                val tmdbReq = com.example.extractor.tmdbembed.TMDBMediaRequest(
+                                    tmdbId = tmdbId,
+                                    mediaType = if (isSeries) "tv" else "movie",
+                                    title = cleanTitle,
+                                    season = seasonNum,
+                                    episode = epNum
+                                )
+                                jobs += launch {
+                                    try {
+                                        val cinemaStreams = withTimeoutOrNull(8000L) {
+                                            com.example.extractor.tmdbembed.TMDBEmbedExtractorEngine.resolveStreamOptions(context, tmdbReq)
+                                        }.orEmpty()
+                                        cinemaStreams.forEach { st ->
+                                            cinemaList.add(
+                                                st.copy(
+                                                    qualityLabel = "$qualityLabel • ${st.qualityLabel.substringBefore(" •")}",
+                                                    sourceName = "OlaMovies Direct",
+                                                    releaseTitle = parentMeta?.title ?: cleanTitle
+                                                )
+                                            )
+                                        }
+                                    } catch (_: Exception) {}
+                                }
+                                jobs += launch {
+                                    try {
+                                        val wasmStreams = withTimeoutOrNull(7500L) {
+                                            com.example.extractor.vidsrc.VidSrcStreamExtractor.resolveViaWasmDecryption(
+                                                context = context,
+                                                tmdbId = tmdbId,
+                                                isTv = isSeries,
+                                                season = seasonNum,
+                                                episode = epNum,
+                                                title = cleanTitle,
+                                                providerName = "OlaMovies"
+                                            )
+                                        }.orEmpty()
+                                        cinemaList.addAll(wasmStreams)
+                                    } catch (_: Exception) {}
+                                }
+                                jobs += launch {
+                                    try {
+                                        val nuvioStreams = withTimeoutOrNull(8500L) {
+                                            com.example.extractor.nuvio.NuvioProviderEngine.resolveNuvioStreams(context, tmdbReq)
+                                        }.orEmpty()
+                                        nuvioStreams.forEach { st ->
+                                            cinemaList.add(
+                                                st.copy(
+                                                    qualityLabel = "$qualityLabel • ${st.qualityLabel}",
+                                                    sourceName = "OlaMovies (${st.sourceName.ifBlank { "Nuvio" }})",
+                                                    releaseTitle = parentMeta?.title ?: cleanTitle
+                                                )
+                                            )
+                                        }
+                                    } catch (_: Exception) {}
+                                }
+                            }
+                            if (cleanTitle.isNotBlank()) {
+                                jobs += launch {
+                                    try {
+                                        val unified = withTimeoutOrNull(9000L) {
+                                            com.example.vega.VegaProviderClient.resolveUnified(
+                                                title = cleanTitle,
+                                                tmdbId = tmdbId,
+                                                isTv = isSeries,
+                                                season = seasonNum,
+                                                episode = epNum
+                                            )
+                                        }.orEmpty()
+                                        unified.forEach { st ->
+                                            cinemaList.add(
+                                                PlayableStreamOption(
+                                                    qualityLabel = "$qualityLabel • ${st.quality.ifBlank { "HD" }} • ${st.server}",
+                                                    format = st.format.lowercase(),
+                                                    isMuxed = true,
+                                                    videoUrl = st.url,
+                                                    audioUrl = null,
+                                                    providerType = ProviderType.DIRECT,
+                                                    headers = st.headers,
+                                                    sourceName = "OlaMovies (${st.server})",
+                                                    releaseTitle = parentMeta?.title ?: cleanTitle
+                                                )
+                                            )
+                                        }
+                                    } catch (_: Exception) {}
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "On-demand cinema stream resolution note: ${e.message}")
+                    }
+                    cinemaList.toList()
+                }
+
+                val resolvedStreams = shortenerDeferred.await()
+                val cinemaStreams = fastCinemaDeferred.await()
+                val merged = mutableListOf<PlayableStreamOption>()
+                for (s in resolvedStreams) {
+                    val isHls = s.link.contains(".m3u8", ignoreCase = true)
+                    merged.add(
+                        PlayableStreamOption(
+                            qualityLabel = "$qualityLabel • ${s.server}",
+                            format = if (isHls) "hls" else s.type.ifBlank { "mkv" },
+                            isMuxed = true,
+                            videoUrl = s.link,
+                            audioUrl = null,
+                            providerType = ProviderType.DIRECT,
+                            headers = s.headers,
+                            sourceName = "OlaMovies (${s.server})"
+                        )
+                    )
+                }
+                merged.addAll(cinemaStreams)
+                merged.distinctBy { it.videoUrl }.toMutableList()
             }
 
             if (options.isEmpty()) {
@@ -1561,11 +1614,8 @@ object OlaMoviesProvider {
             )
         }
 
-        // Case B: Standard movie/series page -> Stage 1 (getMeta) + Stage 2 (resolveStreamForLink + Cinema Direct)
+        // Case B: Standard movie/series page -> Stage 1 (getMeta) + Parallel Stage 2 (Shortener + Fast TMDB/Nuvio/VidSrc Race)
         val meta = getMeta(raw, context)
-        if (meta.directLinks.isEmpty()) {
-            throw OlaMoviesException("Stage 1: No download or quality links were found on this OlaMovies page.")
-        }
 
         // Prefer 1080p or 720p first for fastest initial playback, then 2160p/4K or other links
         val orderedLinks = meta.directLinks.sortedBy { dl ->
@@ -1581,107 +1631,165 @@ object OlaMoviesProvider {
         var resolvedStreams: List<OlaResolvedStream>? = null
         var chosenLink: OlaDirectLink? = null
         var lastResolveError: String? = null
+        val cinemaOptions = java.util.Collections.synchronizedList(mutableListOf<PlayableStreamOption>())
 
-        // Try candidate links from OlaMovies
-        for (candidate in orderedLinks.take(3)) {
-            try {
-                val streams = resolveStreamForLink(candidate.link, context)
-                if (streams.isNotEmpty()) {
-                    resolvedStreams = streams
-                    chosenLink = candidate
-                    break
-                }
-            } catch (e: Exception) {
-                lastResolveError = e.message
-                Log.w(TAG, "Candidate link note (${candidate.title} - ${candidate.link}): ${e.message}")
-                // All releases share the same ol-am.top shortener; if it is blocked, the others will be too.
-                if (e.message?.contains("shortener", ignoreCase = true) == true) break
-            }
-        }
-
-        // Concurrently resolve ultra-reliable high-speed cinema HLS streams via TMDB/IMDb
-        val cinemaOptions = mutableListOf<PlayableStreamOption>()
         val cleanSearchTitle = meta.title
             .replace(Regex("""\s*\(\d{4}\).*"""), "")
             .replace(Regex("""\s*Download.*$""", RegexOption.IGNORE_CASE), "")
             .trim()
         val year = Regex("""\b(19\d{2}|20\d{2})\b""").find(meta.title)?.value?.toIntOrNull()
 
-        try {
-            var tmdbId = ""
-            if (meta.imdbId.isNotBlank() && meta.imdbId.startsWith("tt")) {
-                val found = com.example.util.TMDBHelper.resolveTmdbAndImdb(meta.imdbId, if (meta.isSeries) "tv" else "movie")
-                tmdbId = found.first ?: ""
-            }
-            if (tmdbId.isBlank() && cleanSearchTitle.isNotBlank()) {
-                val found = com.example.util.TMDBHelper.resolveTmdbAndImdb(cleanSearchTitle, if (meta.isSeries) "tv" else "movie")
-                tmdbId = found.first ?: ""
-            }
-            if (cleanSearchTitle.isNotBlank()) {
-                val serverStreams = com.example.vega.VegaProviderClient.resolveUnified(
-                    title = cleanSearchTitle,
-                    tmdbId = tmdbId,
-                    isTv = meta.isSeries
-                )
-                serverStreams.forEach { st ->
-                    cinemaOptions.add(
-                        PlayableStreamOption(
-                            qualityLabel = "${st.quality.ifBlank { "HD" }} • ${st.server}",
-                            format = st.format.lowercase(),
-                            isMuxed = true,
-                            videoUrl = st.url,
-                            audioUrl = null,
-                            providerType = ProviderType.DIRECT,
-                            headers = st.headers,
-                            sourceName = "OlaMovies (Server)",
-                            releaseTitle = meta.title
-                        )
-                    )
+        coroutineScope {
+            // Branch 1: Try OlaMovies shortener/hoster links with a strict 7.5s cap so it never blocks playback
+            val shortenerJob = launch {
+                withTimeoutOrNull(7500L) {
+                    for (candidate in orderedLinks.take(2)) {
+                        try {
+                            val streams = resolveStreamForLink(candidate.link, context)
+                            if (streams.isNotEmpty()) {
+                                resolvedStreams = streams
+                                chosenLink = candidate
+                                break
+                            }
+                        } catch (e: Exception) {
+                            lastResolveError = e.message
+                            Log.w(TAG, "Candidate link note (${candidate.title} - ${candidate.link}): ${e.message}")
+                            if (e.message?.contains("shortener", ignoreCase = true) == true ||
+                                e.message?.contains("Cloudflare", ignoreCase = true) == true
+                            ) break
+                        }
+                    }
                 }
             }
-            if (cinemaOptions.isEmpty() && tmdbId.isNotBlank() && context != null) {
-                val tmdbReq = com.example.extractor.tmdbembed.TMDBMediaRequest(
-                    tmdbId = tmdbId,
-                    mediaType = if (meta.isSeries) "tv" else "movie",
-                    title = cleanSearchTitle,
-                    year = year?.toString() ?: "",
-                    season = 1,
-                    episode = 1
-                )
-                val tmdbStreams = com.example.extractor.tmdbembed.TMDBEmbedExtractorEngine.resolveStreamOptions(context, tmdbReq)
-                tmdbStreams.forEach { st ->
-                    cinemaOptions.add(
-                        st.copy(
-                            qualityLabel = "OlaMovies • ${st.qualityLabel.substringBefore(" •")}",
-                            sourceName = "OlaMovies Direct",
-                            releaseTitle = meta.title
-                        )
-                    )
+
+            // Branch 2: Concurrently resolve fast direct HLS/MP4 streams via TMDB + VidSrc + Nuvio + Butterfly Unified
+            val cinemaJob = launch {
+                try {
+                    var tmdbId = ""
+                    if (meta.imdbId.isNotBlank() && meta.imdbId.startsWith("tt")) {
+                        val found = com.example.util.TMDBHelper.resolveTmdbAndImdb(meta.imdbId, if (meta.isSeries) "tv" else "movie")
+                        tmdbId = found.first ?: ""
+                    }
+                    if (tmdbId.isBlank() && cleanSearchTitle.isNotBlank()) {
+                        val found = com.example.util.TMDBHelper.resolveTmdbAndImdb(cleanSearchTitle, if (meta.isSeries) "tv" else "movie")
+                        tmdbId = found.first ?: ""
+                    }
+
+                    coroutineScope {
+                        if (tmdbId.isNotBlank() && context != null) {
+                            val tmdbReq = com.example.extractor.tmdbembed.TMDBMediaRequest(
+                                tmdbId = tmdbId,
+                                mediaType = if (meta.isSeries) "tv" else "movie",
+                                title = cleanSearchTitle,
+                                year = year?.toString() ?: "",
+                                season = 1,
+                                episode = 1
+                            )
+                            launch {
+                                try {
+                                    val tmdbStreams = withTimeoutOrNull(8000L) {
+                                        com.example.extractor.tmdbembed.TMDBEmbedExtractorEngine.resolveStreamOptions(context, tmdbReq)
+                                    }.orEmpty()
+                                    tmdbStreams.forEach { st ->
+                                        cinemaOptions.add(
+                                            st.copy(
+                                                qualityLabel = "OlaMovies • ${st.qualityLabel.substringBefore(" •")}",
+                                                sourceName = "OlaMovies Direct",
+                                                releaseTitle = meta.title
+                                            )
+                                        )
+                                    }
+                                } catch (_: Exception) {}
+                            }
+                            launch {
+                                try {
+                                    val wasmStreams = withTimeoutOrNull(7500L) {
+                                        com.example.extractor.vidsrc.VidSrcStreamExtractor.resolveViaWasmDecryption(
+                                            context = context,
+                                            tmdbId = tmdbId,
+                                            isTv = meta.isSeries,
+                                            season = 1,
+                                            episode = 1,
+                                            title = meta.title,
+                                            providerName = "OlaMovies"
+                                        )
+                                    }.orEmpty()
+                                    cinemaOptions.addAll(wasmStreams)
+                                } catch (_: Exception) {}
+                            }
+                            launch {
+                                try {
+                                    val nuvioStreams = withTimeoutOrNull(8500L) {
+                                        com.example.extractor.nuvio.NuvioProviderEngine.resolveNuvioStreams(context, tmdbReq)
+                                    }.orEmpty()
+                                    nuvioStreams.forEach { st ->
+                                        cinemaOptions.add(
+                                            st.copy(
+                                                qualityLabel = "OlaMovies • ${st.qualityLabel}",
+                                                sourceName = "OlaMovies (${st.sourceName.ifBlank { "Nuvio" }})",
+                                                releaseTitle = meta.title
+                                            )
+                                        )
+                                    }
+                                } catch (_: Exception) {}
+                            }
+                        }
+
+                        if (cleanSearchTitle.isNotBlank()) {
+                            launch {
+                                try {
+                                    val serverStreams = withTimeoutOrNull(9000L) {
+                                        com.example.vega.VegaProviderClient.resolveUnified(
+                                            title = cleanSearchTitle,
+                                            tmdbId = tmdbId,
+                                            isTv = meta.isSeries
+                                        )
+                                    }.orEmpty()
+                                    serverStreams.forEach { st ->
+                                        cinemaOptions.add(
+                                            PlayableStreamOption(
+                                                qualityLabel = "${st.quality.ifBlank { "HD" }} • ${st.server}",
+                                                format = st.format.lowercase(),
+                                                isMuxed = true,
+                                                videoUrl = st.url,
+                                                audioUrl = null,
+                                                providerType = ProviderType.DIRECT,
+                                                headers = st.headers,
+                                                sourceName = "OlaMovies (${st.server})",
+                                                releaseTitle = meta.title
+                                            )
+                                        )
+                                    }
+                                } catch (_: Exception) {}
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Cinema fallback stream resolution note: ${e.message}")
                 }
-                val wasmStreams = com.example.extractor.vidsrc.VidSrcStreamExtractor.resolveViaWasmDecryption(
-                    context = context,
-                    tmdbId = tmdbId,
-                    isTv = meta.isSeries,
-                    season = 1,
-                    episode = 1,
-                    title = meta.title,
-                    providerName = "OlaMovies"
-                )
-                cinemaOptions.addAll(wasmStreams)
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Cinema fallback stream resolution note: ${e.message}")
+
+            cinemaJob.join()
+            // If fast cinema streams are already ready, don't let a hung shortener delay playback beyond 1.5s more
+            if (cinemaOptions.isNotEmpty() && shortenerJob.isActive) {
+                withTimeoutOrNull(1500L) { shortenerJob.join() }
+                if (shortenerJob.isActive) shortenerJob.cancel()
+            } else {
+                shortenerJob.join()
+            }
         }
 
         val streamOptions = mutableListOf<PlayableStreamOption>()
 
         // 1. Add immediately resolved hoster mirrors (if any)
-        if (!resolvedStreams.isNullOrEmpty() && chosenLink != null) {
-            for (s in resolvedStreams) {
+        val finalResolvedStreams = resolvedStreams
+        val finalChosenLink = chosenLink
+        if (!finalResolvedStreams.isNullOrEmpty() && finalChosenLink != null) {
+            for (s in finalResolvedStreams) {
                 val isHls = s.link.contains(".m3u8", ignoreCase = true)
                 streamOptions.add(
                     PlayableStreamOption(
-                        qualityLabel = "${chosenLink.quality} • ${s.server} (${chosenLink.title})",
+                        qualityLabel = "${finalChosenLink.quality} • ${s.server} (${finalChosenLink.title})",
                         format = if (isHls) "hls" else s.type.ifBlank { "mkv" },
                         isMuxed = true,
                         videoUrl = s.link,
@@ -1689,18 +1797,18 @@ object OlaMoviesProvider {
                         providerType = ProviderType.DIRECT,
                         headers = s.headers,
                         sourceName = "OlaMovies (${s.server})",
-                        releaseTitle = chosenLink.groupTitle
+                        releaseTitle = finalChosenLink.groupTitle
                     )
                 )
             }
         }
 
-        // 2. Add cinema direct streams (VidSrc WASM, Showbox, VixSrc, Videasy, CastleTv, etc.)
-        streamOptions.addAll(cinemaOptions)
+        // 2. Add cinema direct streams (TMDB Direct, VidSrc WASM, Nuvio, Unified Server)
+        streamOptions.addAll(cinemaOptions.distinctBy { it.videoUrl })
 
         // 3. Add all other Stage 1 quality / episode links for on-demand switching in the player
         for (dl in meta.directLinks) {
-            if (chosenLink != null && dl.link == chosenLink.link) continue
+            if (finalChosenLink != null && dl.link == finalChosenLink.link) continue
             val label = "${dl.quality} • ${dl.title} (${dl.groupTitle.take(28)})"
             streamOptions.add(
                 PlayableStreamOption(

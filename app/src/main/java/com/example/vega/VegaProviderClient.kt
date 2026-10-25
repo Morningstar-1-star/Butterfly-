@@ -52,8 +52,8 @@ object VegaProviderClient {
             maxRequestsPerHost = 32
         })
         .dns(com.example.util.SecureDnsManager.appDns)
-        .connectTimeout(15, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(14, TimeUnit.SECONDS)
         .followRedirects(true)
         .followSslRedirects(true)
         .build()
@@ -392,8 +392,8 @@ object VegaProviderClient {
             if (tmdbId.isNotBlank()) sb.append("&tmdbId=").append(URLEncoder.encode(tmdbId, enc))
             val req = Request.Builder().url(sb.toString()).header("Accept", "application/json").build()
             val slowClient = client.newBuilder()
-                .connectTimeout(40, TimeUnit.SECONDS)
-                .readTimeout(100, TimeUnit.SECONDS)
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(14, TimeUnit.SECONDS)
                 .build()
             slowClient.newCall(req).executeCancellable().use { resp ->
                 val body = resp.body?.string() ?: return@withContext emptyList()
@@ -432,7 +432,10 @@ object VegaProviderClient {
                 sb.append("&providers=").append(URLEncoder.encode(providerId, StandardCharsets.UTF_8.name()))
             }
             val req = Request.Builder().url(sb.toString()).header("Accept", "application/json").build()
-            val slowClient = client.newBuilder().readTimeout(90, TimeUnit.SECONDS).build()
+            val slowClient = client.newBuilder()
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(14, TimeUnit.SECONDS)
+                .build()
             slowClient.newCall(req).executeCancellable().use { resp ->
                 val body = resp.body?.string() ?: return@withContext emptyList()
                 val root = JSONObject(body)

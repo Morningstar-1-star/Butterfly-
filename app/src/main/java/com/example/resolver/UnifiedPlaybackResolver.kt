@@ -69,6 +69,7 @@ class UnifiedPlaybackResolver private constructor(private val context: Context) 
 
         val currentPos = initialPosOverride ?: GlobalPlayerManager.currentPositionMs.value.coerceAtLeast(0L)
         val currentSpeed = GlobalPlayerManager.getExoPlayer(context).playbackParameters.speed
+        GlobalPlayerManager.pause()
 
         val isHanime = candidate.urlOrMagnet.contains("hanime", ignoreCase = true)
         val initialCandidate = if (isHanime && !candidate.urlOrMagnet.contains(".m3u8", ignoreCase = true) && !candidate.urlOrMagnet.contains(".mp4", ignoreCase = true)) {

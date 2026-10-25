@@ -485,15 +485,23 @@ class Media3QueueManager(
         _currentQueueIndex.value = 0
         _hasNextItem.value = false
         _hasPreviousItem.value = false
-        try {
-            concatenatingMediaSource.clear()
-        } catch (_: Exception) {}
-        concatenatingMediaSource = ConcatenatingMediaSource()
-        try {
-            exoPlayer?.playWhenReady = false
-            exoPlayer?.stop()
-            exoPlayer?.clearMediaItems()
-        } catch (_: Exception) {}
+        val clearBlock = Runnable {
+            try {
+                concatenatingMediaSource.clear()
+            } catch (_: Exception) {}
+            concatenatingMediaSource = ConcatenatingMediaSource()
+            try {
+                exoPlayer?.playWhenReady = false
+                exoPlayer?.pause()
+                exoPlayer?.stop()
+                exoPlayer?.clearMediaItems()
+            } catch (_: Exception) {}
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            clearBlock.run()
+        } else {
+            mainHandler.post(clearBlock)
+        }
     }
 
     /**

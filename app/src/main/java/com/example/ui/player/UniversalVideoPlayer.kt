@@ -327,7 +327,18 @@ fun UniversalVideoPlayer(
         }
     }
 
+    LaunchedEffect(videoId) {
+        val activeVid = GlobalPlayerManager.activeStreamData.value?.videoId
+        if (videoId != null && activeVid != null && activeVid != videoId) {
+            GlobalPlayerManager.stopAndClear()
+        }
+    }
+
     LaunchedEffect(streamOption?.videoUrl, streamOption?.videoStream?.url, hlsUrl, captionOption?.languageCode, videoId, streamData?.videoId) {
+        val activeVid = GlobalPlayerManager.activeStreamData.value?.videoId
+        if (videoId != null && activeVid != null && activeVid != videoId) {
+            GlobalPlayerManager.stopAndClear()
+        }
         val targetStreamData = streamData ?: return@LaunchedEffect
         if (videoId != null && targetStreamData.videoId != videoId) {
             return@LaunchedEffect
@@ -819,7 +830,7 @@ fun UniversalVideoPlayer(
         val playerError by GlobalPlayerManager.playerError.collectAsState()
 
         val showLoadingIndicator = isBuffering || (!firstFrameRendered && playerError == null)
-        val currentStream = streamData ?: activeStreamData
+        val currentStream = streamData ?: activeStreamData?.takeIf { videoId == null || it.videoId == videoId }
 
         Box(
             modifier = Modifier

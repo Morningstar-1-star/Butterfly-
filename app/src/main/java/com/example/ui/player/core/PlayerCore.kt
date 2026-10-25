@@ -30,14 +30,27 @@ class PlayerCore(
 ) {
     private val TAG = "PlayerCore"
 
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    private inline fun runOnMain(crossinline block: () -> Unit) {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            block()
+        } else {
+            mainHandler.post { block() }
+        }
+    }
+
     var player: ExoPlayer? = null
         private set
 
     init {
-        initializePlayer()
+        runOnMain {
+            initializePlayer()
+        }
     }
 
     private fun initializePlayer() {
+        if (player != null) return
         val appContext = context.applicationContext
         val loadControl = SmartAdaptiveLoadControl.create(appContext)
         val bandwidthMeter = AdaptiveBandwidthManager.getBandwidthMeter(appContext)
@@ -132,24 +145,57 @@ class PlayerCore(
         player = exo
     }
 
+    fun ensurePlayerOnMain(): ExoPlayer {
+        if (player == null) {
+            if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+                initializePlayer()
+            } else {
+                val latch = java.util.concurrent.CountDownLatch(1)
+                mainHandler.post {
+                    try {
+                        initializePlayer()
+                    } finally {
+                        latch.countDown()
+                    }
+                }
+                try {
+                    latch.await(3, java.util.concurrent.TimeUnit.SECONDS)
+                } catch (_: InterruptedException) {}
+            }
+        }
+        return player!!
+    }
+
     fun play() {
-        player?.play()
+        runOnMain {
+            player?.playWhenReady = true
+            player?.play()
+        }
     }
 
     fun pause() {
-        player?.pause()
+        runOnMain {
+            player?.playWhenReady = false
+            player?.pause()
+        }
     }
 
     fun seekTo(positionMs: Long) {
-        player?.seekTo(positionMs)
+        runOnMain {
+            player?.seekTo(positionMs)
+        }
     }
 
     fun setPlaybackSpeed(speed: Float) {
-        player?.playbackParameters = PlaybackParameters(speed)
+        runOnMain {
+            player?.playbackParameters = PlaybackParameters(speed)
+        }
     }
 
     fun setRepeatMode(repeatMode: Int) {
-        player?.repeatMode = repeatMode
+        runOnMain {
+            player?.repeatMode = repeatMode
+        }
     }
 
     fun parseAudioTracks(tracks: Tracks): List<AudioTrackOption> {
@@ -206,57 +252,66 @@ class PlayerCore(
     }
 
     fun selectAudioTrack(option: AudioTrackOption) {
-        val exo = player ?: return
-        val tracks = exo.currentTracks
-        var currentGroupIdx = 0
-        for (group in tracks.groups) {
-            if (currentGroupIdx == option.groupIndex && group.type == C.TRACK_TYPE_AUDIO) {
-                val override = androidx.media3.common.TrackSelectionOverride(
-                    group.mediaTrackGroup,
-                    listOf(option.trackIndex)
-                )
-                val paramsBuilder = exo.trackSelectionParameters
-                    .buildUpon()
-                    .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
-                    .addOverride(override)
-                if (option.languageCode.isNotBlank()) {
-                    paramsBuilder.setPreferredAudioLanguage(option.languageCode)
+        runOnMain {
+            val exo = player ?: return@runOnMain
+            val tracks = exo.currentTracks
+            var currentGroupIdx = 0
+            for (group in tracks.groups) {
+                if (currentGroupIdx == option.groupIndex && group.type == C.TRACK_TYPE_AUDIO) {
+                    val override = androidx.media3.common.TrackSelectionOverride(
+                        group.mediaTrackGroup,
+                        listOf(option.trackIndex)
+                    )
+                    val paramsBuilder = exo.trackSelectionParameters
+                        .buildUpon()
+                        .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                        .addOverride(override)
+                    if (option.languageCode.isNotBlank()) {
+                        paramsBuilder.setPreferredAudioLanguage(option.languageCode)
+                    }
+                    exo.trackSelectionParameters = paramsBuilder.build()
+                    break
                 }
-                exo.trackSelectionParameters = paramsBuilder.build()
-                break
+                currentGroupIdx++
             }
-            currentGroupIdx++
         }
     }
 
     fun setPreferredAudioLanguage(languageCode: String) {
-        val exo = player ?: return
-        exo.trackSelectionParameters = exo.trackSelectionParameters
-            .buildUpon()
-            .setPreferredAudioLanguage(languageCode)
-            .build()
+        runOnMain {
+            val exo = player ?: return@runOnMain
+            exo.trackSelectionParameters = exo.trackSelectionParameters
+                .buildUpon()
+                .setPreferredAudioLanguage(languageCode)
+                .build()
+        }
     }
 
     fun resetPlayback() {
-        try {
-            player?.playWhenReady = false
-            player?.pause()
-            player?.stop()
-            player?.clearMediaItems()
-        } catch (e: Exception) {
-            Log.w(TAG, "Error resetting ExoPlayer playback: ${e.message}")
+        runOnMain {
+            try {
+                player?.playWhenReady = false
+                player?.pause()
+                player?.stop()
+                player?.clearMediaItems()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error resetting ExoPlayer playback: ${e.message}")
+            }
         }
     }
 
     fun release() {
-        try {
-            player?.stop()
-            player?.clearMediaItems()
-            player?.removeListener(listener)
-            player?.release()
-            player = null
-        } catch (e: Exception) {
-            Log.w(TAG, "Error releasing ExoPlayer: ${e.message}")
+        runOnMain {
+            try {
+                player?.playWhenReady = false
+                player?.stop()
+                player?.clearMediaItems()
+                player?.removeListener(listener)
+                player?.release()
+                player = null
+            } catch (e: Exception) {
+                Log.w(TAG, "Error releasing ExoPlayer: ${e.message}")
+            }
         }
     }
 }

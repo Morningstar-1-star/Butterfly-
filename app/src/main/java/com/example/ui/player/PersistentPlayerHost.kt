@@ -36,7 +36,8 @@ fun PersistentPlayerHost(
                 this.isFocusable = false
                 this.keepScreenOn = shouldKeepScreenOn
                 this.setOnTouchListener { _, _ -> false }
-                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                setKeepContentOnPlayerReset(false)
+                setShutterBackgroundColor(android.graphics.Color.BLACK)
                 setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
                 setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { visibility ->
                     GlobalPlayerManager.setControlsVisibility(visibility == android.view.View.VISIBLE)
@@ -59,7 +60,8 @@ fun PersistentPlayerHost(
             if (playerView.resizeMode != resizeMode) {
                 playerView.resizeMode = resizeMode
             }
-            playerView.setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+            playerView.setKeepContentOnPlayerReset(false)
+            playerView.setShutterBackgroundColor(android.graphics.Color.BLACK)
             playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
             if (onFullscreenClick != null) {
                 playerView.setFullscreenButtonClickListener { onFullscreenClick() }

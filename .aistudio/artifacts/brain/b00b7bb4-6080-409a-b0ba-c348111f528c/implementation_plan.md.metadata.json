@@ -1,6 +1,6 @@
 {
-  "summary":  "Comprehensive implementation plan to reduce APK size to ~45MB with signed Release R8 builds, fix SupJav demo videos with live JAV scrapers, connect Vega and Nuvio to Butterfly-MediaServer, and achieve sub-second instant video playback with 800ms buffer control and player recycling.",
-  "updatedAt":  "2026-10-22T02:47:46.434824167Z",
+  "summary":  "Comprehensive plan to fix ghost audio/video playback when switching or failing sources, restore OlaMovies playback via parallel shortener + TMDB/Nuvio/VidSrc racing, auto-skip dead Vega/Nuvio/VidSrc/Decryptor sources while keeping all sources visible, cut APK and GitHub ZIP size by building arm64-v8a only with compressed DEX/JNI libraries (keeping yt-dlp), and reduce app startup time from 10+ seconds to under 2 seconds.",
+  "updatedAt":  "2026-10-24T18:56:40.653428268Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

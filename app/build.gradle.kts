@@ -22,7 +22,7 @@ android {
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     if (!enableAbiSplits) {
       ndk {
-        abiFilters += listOf("x86_64", "arm64-v8a")
+        abiFilters += listOf("arm64-v8a")
       }
     }
 
@@ -43,7 +43,9 @@ android {
         "/META-INF/DEPENDENCIES",
         "/META-INF/LICENSE*",
         "/META-INF/NOTICE*",
-        "META-INF/*.kotlin_module"
+        "META-INF/*.kotlin_module",
+        "META-INF/*.version",
+        "DebugProbesKt.bin"
       )
     }
   }
@@ -52,8 +54,8 @@ android {
     abi {
       isEnable = enableAbiSplits
       reset()
-      include("arm64-v8a", "x86_64")
-      isUniversalApk = true
+      include("arm64-v8a")
+      isUniversalApk = false
     }
   }
 
